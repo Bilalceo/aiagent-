@@ -31,6 +31,7 @@ from app.services.voice.streaming_stt import (
     StreamingSTTSessionService,
 )
 from app.services.voice.streaming_tts import (
+    BargeInController,
     MockStreamingTTSProvider,
     StreamingTTSProvider,
     TwilioPlaybackService,
@@ -261,7 +262,7 @@ def get_streaming_tts_provider() -> StreamingTTSProvider:
 
 
 def build_streaming_playback_service() -> TwilioPlaybackService:
-    """Mock-first outbound playback over the Twilio Media Stream (no barge-in)."""
+    """Mock-first outbound playback over the Twilio Media Stream."""
     return TwilioPlaybackService(
         get_streaming_tts_provider(),
         chunk_size=settings.streaming_tts_chunk_bytes,
@@ -269,4 +270,14 @@ def build_streaming_playback_service() -> TwilioPlaybackService:
         max_chunks=settings.streaming_tts_max_chunks_per_turn,
         voice_uz=settings.streaming_tts_voice_uz,
         voice_ru=settings.streaming_tts_voice_ru,
+    )
+
+
+def build_barge_in_controller() -> BargeInController:
+    """Barge-in/mark state machine for one media stream (sends Twilio `clear`)."""
+    return BargeInController(
+        enabled=settings.barge_in_enabled,
+        on_partial=settings.barge_in_on_partial,
+        on_final=settings.barge_in_on_final,
+        min_chars=settings.barge_in_min_transcript_chars,
     )

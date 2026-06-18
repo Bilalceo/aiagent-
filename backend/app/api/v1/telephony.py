@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
+    build_barge_in_controller,
     build_streaming_playback_service,
     build_streaming_stt_session_service,
     build_streaming_turn_service,
@@ -204,17 +205,21 @@ async def twilio_media_stream(
     routed once through the full AI/safety pipeline (CallSessionService) and the
     safe turn result is attached to the stream; partials never call the AI. When
     STREAMING_TTS_ENABLED is also on, the turn's reply is synthesized (mock) and
-    streamed back as `media` + `mark` events over this same socket. No barge-in.
-    Raw audio payloads are NEVER logged or stored. Malformed events close safely.
+    streamed back as `media` + `mark` events over this same socket. With
+    BARGE_IN_ENABLED, caller speech during active playback sends a Twilio `clear`
+    to interrupt it; incoming `mark` events complete the playback. Raw audio
+    payloads are NEVER logged or stored. Malformed events close safely.
     """
     await websocket.accept()
     svc = build_telephony_stream_service(session)
     streaming_on = settings.streaming_stt_enabled and settings.twilio_use_media_streams
     turns_on = streaming_on and settings.streaming_stt_ai_turns_enabled
     stream = None
+    stream_sid = None  # captured once at start (avoids reading a possibly-expired stream)
     stt = None  # StreamingSTTSessionService, only when streaming_on
     turns = None  # StreamingTurnManager, only when turns_on + a call session is linked
     playback = None  # TwilioPlaybackService, only when streaming_tts_enabled + turns active
+    barge = build_barge_in_controller()  # tracks active playback + handles clear/mark
     frames = 0
     stopped = False  # local guard (avoids reading possibly-expired stream.status)
 
@@ -227,11 +232,13 @@ async def twilio_media_stream(
             return
         turn["playback"] = await playback.play(
             websocket.send_json,
-            stream_sid=stream.stream_sid if stream is not None else None,
+            stream_sid=stream_sid,
             ai_text=turn["ai_text"],
             language=turn.get("language"),
             turn_order=turn.get("order", 0),
         )
+        # Track this playback so caller speech can barge-in and Twilio marks complete it.
+        barge.begin_playback(turn["playback"])
 
     async def _run_finals(events) -> bool:
         # Only FINAL transcripts trigger an AI turn; partials are ignored here.
@@ -296,6 +303,7 @@ async def twilio_media_stream(
                 except TelephonyStreamError:
                     await websocket.close(code=_WS_UNSUPPORTED)
                     return
+                stream_sid = stream.stream_sid
                 if streaming_on:
                     start_obj = event.get("start") or {}
                     params = start_obj.get("customParameters")
@@ -337,6 +345,9 @@ async def twilio_media_stream(
                         events = await stt.push_frame(
                             _build_audio_frame(event, stream, decoded or b"")
                         )
+                        # Barge-in: caller speech (partial/final) during active
+                        # playback clears the queued audio BEFORE the new AI turn.
+                        await barge.maybe_barge_in(events, websocket.send_json, stream_sid)
                         if await _run_finals(events):
                             # A turn may have rolled the session back (expiring the
                             # stream); re-bind so later frames/finalize stay valid.
@@ -347,6 +358,12 @@ async def twilio_media_stream(
                             stopped = True
                             await websocket.close(code=1000)
                             return
+            elif kind == "mark":
+                # Twilio echoes a `mark` when playback reaches it -> complete it.
+                # Unknown/duplicate marks are idempotent no-ops (never crash).
+                mark = event.get("mark")
+                name = mark.get("name") if isinstance(mark, dict) else None
+                barge.on_mark(name)
             elif kind == "stop":
                 if stream is not None:
                     await _finalize("stop_event")
@@ -354,7 +371,7 @@ async def twilio_media_stream(
                     stopped = True
                 await websocket.close(code=1000)
                 return
-            # "mark" and unknown events are ignored.
+            # unknown events are ignored.
     finally:
         # If the socket dropped mid-stream, finalize streaming + mark it stopped.
         # Use the local `stopped` flag (never read a possibly-expired stream.status).

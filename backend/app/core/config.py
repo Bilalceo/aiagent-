@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     streaming_tts_voice_uz: str = "uz-UZ-MadinaNeural"
     streaming_tts_voice_ru: str = "ru-RU-SvetlanaNeural"
 
+    # Barge-in (mock-first): when the caller speaks (a streaming partial/final
+    # transcript) while playback is active, send a Twilio `clear` to interrupt the
+    # queued audio. No real VAD; the streaming STT transcript IS the speech signal.
+    barge_in_enabled: bool = False  # default off -> keep A26 playback behavior
+    barge_in_on_partial: bool = True  # a partial transcript triggers barge-in
+    barge_in_on_final: bool = True  # a final transcript triggers barge-in
+    barge_in_min_transcript_chars: int = 1  # ignore shorter (noise) transcripts
+
     # Azure Speech
     azure_speech_key: str = ""
     azure_speech_region: str = "westeurope"

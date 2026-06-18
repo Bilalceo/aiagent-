@@ -123,11 +123,18 @@ class TwilioPlaybackService:
             "truncated": False,
             "degraded": False,
             "error": None,
+            # Playback lifecycle (updated by the barge-in/mark handling):
+            "status": "playing",  # playing | completed | interrupted | degraded
+            "mark_received": False,
+            "clear_sent": False,
+            "interrupted": False,
+            "interruption_reason": None,
         }
 
         text = (ai_text or "").strip()
         if not text:
             summary["degraded"] = True
+            summary["status"] = "degraded"
             summary["error"] = "empty_text"
             return summary
         if len(text) > self._max_text_chars:
@@ -140,6 +147,7 @@ class TwilioPlaybackService:
             )
         except Exception:  # synth failure -> degraded, never crash the WS
             summary["degraded"] = True
+            summary["status"] = "degraded"
             summary["error"] = "tts_error"
             return summary
 
@@ -158,7 +166,91 @@ class TwilioPlaybackService:
             await send(build_mark_message(stream_sid, mark_name))
         except Exception:  # send failure (socket broken) -> degraded, never crash
             summary["degraded"] = True
+            summary["status"] = "degraded"
             summary["error"] = "send_error"
             return summary
 
         return summary
+
+
+class BargeInController:
+    """Barge-in state machine for one media stream (mock-first).
+
+    Tracks the currently-active playback (the turn's playback summary dict) and,
+    when the caller speaks again (a streaming partial/final transcript), sends a
+    Twilio `clear` to interrupt the queued audio. It also handles Twilio `mark`
+    echoes to mark a playback completed. All state lives on the SAME playback
+    summary dict that is persisted with the stream metadata - no raw audio/base64.
+    """
+
+    def __init__(
+        self,
+        *,
+        enabled: bool = False,
+        on_partial: bool = True,
+        on_final: bool = True,
+        min_chars: int = 1,
+    ) -> None:
+        self.enabled = enabled
+        self._on_partial = on_partial
+        self._on_final = on_final
+        self._min_chars = max(1, min_chars)
+        self.active: Optional[dict] = None  # active playback summary, awaiting mark/interrupt
+
+    def begin_playback(self, summary: Optional[dict]) -> None:
+        """Track a freshly-sent playback. Only a successful (non-degraded) playback
+        can be interrupted; a degraded one is never marked active."""
+        self.active = summary if (summary and not summary.get("degraded")) else None
+
+    def on_mark(self, name: Optional[str]) -> None:
+        """Handle a Twilio `mark` echo: complete the active playback if it matches.
+
+        Unknown names and duplicate/late marks are no-ops (idempotent, no crash)."""
+        a = self.active
+        if a is None or not name:
+            return
+        if a.get("mark_name") == name and not a.get("mark_received"):
+            a["mark_received"] = True
+            if not a.get("interrupted"):
+                a["status"] = "completed"
+            self.active = None  # playback finished
+
+    def _qualifies(self, events) -> bool:
+        """True if any event is caller speech that should interrupt playback."""
+        for e in events:
+            if len((e.text or "").strip()) < self._min_chars:
+                continue
+            if e.is_final and self._on_final:
+                return True
+            if (not e.is_final) and self._on_partial:
+                return True
+        return False
+
+    async def maybe_barge_in(self, events, send: SendFn, stream_sid: Optional[str]) -> bool:
+        """If the caller is speaking during active playback, send ONE `clear`.
+
+        Returns True if a clear was sent. Never sends a duplicate clear for the same
+        playback. A send failure marks the playback degraded but never raises."""
+        if not self.enabled:
+            return False
+        a = self.active
+        if a is None or a.get("clear_sent") or a.get("interrupted"):
+            return False
+        if not self._qualifies(events):
+            return False
+        try:
+            await send(build_clear_message(stream_sid))
+        except Exception:  # clear failed -> mark degraded, do not crash the WS
+            a["interrupted"] = True
+            a["interruption_reason"] = "caller_speech"
+            a["interruption_error"] = "clear_send_error"
+            a["status"] = "degraded"
+            a["degraded"] = True
+            self.active = None
+            return False
+        a["clear_sent"] = True
+        a["interrupted"] = True
+        a["interruption_reason"] = "caller_speech"
+        a["status"] = "interrupted"
+        self.active = None  # interrupted; no further barge-in for this playback
+        return True

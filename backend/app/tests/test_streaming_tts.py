@@ -162,7 +162,8 @@ async def test_playback_summary_has_no_raw_audio() -> None:
     svc = TwilioPlaybackService(MockStreamingTTSProvider())
     summary = await svc.play(_CollectSend(), stream_sid="MZ", ai_text="hi")
     fields = {"provider", "enabled", "voice", "chunks_sent", "bytes_sent", "mark_name",
-              "truncated", "degraded", "error"}
+              "truncated", "degraded", "error", "status", "mark_received", "clear_sent",
+              "interrupted", "interruption_reason"}
     assert set(summary) == fields
     assert not any(bad in k for k in summary for bad in ("payload", "audio", "base64"))
 

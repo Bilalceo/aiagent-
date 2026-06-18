@@ -2,10 +2,12 @@
 
 This is a SPIKE: a WebSocket endpoint that accepts Twilio Media Streams events,
 tracks the stream lifecycle, and counts media frames/bytes. It is NOT real-time
-voice AI yet. There is:
-- no streaming STT (we do not transcribe frames),
-- no streaming TTS (we do not synthesize audio back),
-- no barge-in, no turn endpointing, no outbound dialing.
+voice AI yet. The base spike does NOT transcribe/synthesize/interrupt; those are
+layered on top behind flags (all mock-first, default OFF), documented below:
+- streaming STT + AI turns (docs/streaming-stt.md),
+- streaming TTS playback (docs/streaming-tts-playback.md),
+- barge-in + clear/mark handling (docs/barge-in.md).
+Still no real VAD/endpointing and no outbound dialing.
 
 The existing Twilio Gather/SpeechResult flow, the mock telephony flow, and
 `/voice/simulate` are all unchanged.
@@ -105,8 +107,15 @@ followed by a `mark` event. Emergency / operator-transfer turns voice the offici
 SAFE reply (103 / operator message). A safe playback summary (provider, chunks,
 bytes, mark name, degraded) is stored under each turn's `playback` block - never
 raw audio or base64. It is mock-only (the bytes are not real playable audio), and
-there is NO barge-in. Default is OFF (AI turn persisted, no outbound media). See
+Default is OFF (AI turn persisted, no outbound media). See
 docs/streaming-tts-playback.md.
+
+## Barge-in (mock-first) - now available behind flags
+With `BARGE_IN_ENABLED=true`, caller speech (a streaming partial/final transcript)
+during active playback sends a Twilio `clear` event to flush the queued audio and
+marks the playback `interrupted` in metadata. Incoming Twilio `mark` echoes
+complete a playback (`status=completed`). There is no real VAD - the transcript IS
+the speech signal. Default OFF. See docs/barge-in.md.
 
 ## Next steps toward real-time voice
 1. Real streaming STT provider (Azure/Deepgram/OpenAI realtime) behind
@@ -117,8 +126,8 @@ docs/streaming-tts-playback.md.
    AI-turn wiring already exists).
 3. Real streaming TTS provider behind `StreamingTTSProvider`, emitting mu-law/8k
    frames Twilio can actually play (the media/mark playback path already exists).
-4. Barge-in: stop outbound TTS when inbound speech is detected (`clear` event
-   builder already exists, not wired).
+4. Real VAD / endpointing as the barge-in signal (barge-in itself is wired in
+   A27 - docs/barge-in.md - using transcript events as the speech signal).
 5. Latency + audio-quality metrics and a live voice eval on top of the text evals.
 6. Optionally persist a placeholder inbound `AudioRecording`
    (kind=user_audio, content_type=audio/x-mulaw) once buffering is designed

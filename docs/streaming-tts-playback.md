@@ -8,8 +8,11 @@ back to Twilio over the SAME socket as `media` + `mark` events.
 It is ARCHITECTURE + a deterministic MOCK only:
 - no real speech synthesis (the mock emits `b"MOCK-TTS:" + text`),
 - no real/paid streaming TTS provider,
-- no barge-in (the `clear` event helper exists but is NOT used),
 - no real hangup control (emergency/transfer playback is documented below).
+
+Barge-in IS now wired (mock-first): when the caller speaks during playback, the
+server sends a Twilio `clear` and marks the playback interrupted. It is OFF by
+default (`BARGE_IN_ENABLED=false`). See docs/barge-in.md.
 
 The non-streaming Twilio Gather/SpeechResult flow, `/voice/simulate`, streaming
 STT, and the AI-turn metadata are all unchanged. Streaming TTS is OFF by default.
@@ -20,8 +23,8 @@ STT, and the AI-turn metadata are all unchanged. Streaming TTS is OFF by default
 - Twilio outbound builders (safe JSON, never carry raw bytes in logs/metadata):
   - `build_media_message(stream_sid, payload_b64)` -> `{"event":"media", ...}`
   - `build_mark_message(stream_sid, name)` -> `{"event":"mark", ...}`
-  - `build_clear_message(stream_sid)` -> `{"event":"clear", ...}` (for a FUTURE
-    barge-in; not used yet)
+  - `build_clear_message(stream_sid)` -> `{"event":"clear", ...}` (used by barge-in;
+    see docs/barge-in.md)
   - `chunk_bytes(data, size)` -> split audio into `<= size` frames
 - `TwilioPlaybackService.play(send, *, stream_sid, ai_text, language, turn_order)`:
   resolves the voice, caps text, synthesizes, chunks, base64-encodes each chunk
@@ -61,11 +64,15 @@ Safe counts + the mark name ONLY - never raw audio, base64, or secrets:
     "playback": {
       "provider": "mock", "enabled": true, "voice": "uz-UZ-MadinaNeural",
       "chunks_sent": 10, "bytes_sent": 158, "mark_name": "MZ-on:turn:0",
-      "truncated": false, "degraded": false, "error": null
+      "truncated": false, "degraded": false, "error": null,
+      "status": "playing", "mark_received": false, "clear_sent": false,
+      "interrupted": false, "interruption_reason": null
     }
 
 `degraded=true` with `error` in {empty_text, tts_error, send_error} marks a failed
-playback; `truncated=true` means the reply text or chunk count hit its cap.
+playback; `truncated=true` means the reply text or chunk count hit its cap. The
+`status`/`mark_received`/`clear_sent`/`interrupted`/`interruption_reason` lifecycle
+fields are driven by barge-in + mark handling (docs/barge-in.md).
 
 ## Env flags
 - `STREAMING_TTS_ENABLED` (default false) - enable outbound playback.
@@ -81,15 +88,17 @@ builders, chunking + once-per-chunk base64, TwilioPlaybackService with caps and
 safe degraded handling, WebSocket wiring (final turn -> media + mark), per-turn
 playback summary in stream metadata, full test coverage.
 
+Also implemented (A27): barge-in (`clear` on caller speech) + incoming `mark`
+handling - see docs/barge-in.md.
+
 NOT implemented: real streaming TTS provider, real mu-law/8k audio encoding (the
-mock bytes are not playable audio), barge-in (`clear` on inbound speech), hangup
-after emergency, playback-latency metrics, `mark`-acknowledgement handling.
+mock bytes are not playable audio), real VAD / endpointing, hangup after
+emergency, playback-latency metrics.
 
 ## Next steps toward a real-time voice pilot
 1. Real streaming TTS provider behind `StreamingTTSProvider`, emitting mu-law/8k
    frames Twilio can actually play; reuse the same chunk/media/mark path.
-2. Barge-in: on inbound speech resuming mid-playback, send `clear` and stop the
-   outbound stream (the `clear` builder already exists).
-3. Handle Twilio's echoed `mark` events to track playback progress / completion.
-4. Hangup/handoff strategy after an emergency or operator-transfer message.
-5. Latency + audio-quality metrics and a live voice eval on top of the text evals.
+2. Real VAD / provider endpointing as the barge-in signal (barge-in itself is
+   wired in A27 - docs/barge-in.md).
+3. Hangup/handoff strategy after an emergency or operator-transfer message.
+4. Latency + audio-quality metrics and a live voice eval on top of the text evals.
