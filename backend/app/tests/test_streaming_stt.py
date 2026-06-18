@@ -7,6 +7,7 @@ assert the attached summary via a spy (no cross-loop DB reads, no real audio).
 from __future__ import annotations
 
 import base64
+import time
 
 import pytest
 import pytest_asyncio
@@ -307,7 +308,13 @@ def test_ws_streaming_attaches_summary_on_disconnect(monkeypatch, attach_spy) ->
             ws.send_json(_ws_start("MZ-d", "CA-d"))
             ws.send_json(_media(_b64(b"\x00" * 160)))
             ws.send_json(_media(_b64(b"\x00" * 160), seq="3"))
-            # exit context without "stop" -> client disconnect -> server finalizes
+            # Let the server drain the queued start/media BEFORE the client
+            # disconnect. Without this, a newer starlette TestClient can cancel the
+            # server task on context exit before it reads the queue (server then
+            # sees the disconnect with stream=None), making the finalize-on-
+            # disconnect assertion flaky. Then exit without "stop" -> the server
+            # finalizes via its `finally` (stopped_reason="disconnect").
+            time.sleep(0.5)
     finally:
         app.dependency_overrides.clear()
     assert len(attach_spy) >= 1
