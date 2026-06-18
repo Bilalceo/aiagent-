@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     streaming_stt_max_turns: int = 50  # cap AI turns per stream (bounds metadata growth)
     streaming_stt_max_transcript_chars: int = 2000  # cap transcript chars per turn
 
+    # Streaming TTS playback (mock-first): when on, an AI text turn's reply is
+    # synthesized (mock) and sent back as Twilio Media Streams `media` + `mark`
+    # events over the SAME socket. No barge-in, no real provider yet.
+    streaming_tts_enabled: bool = False  # default off -> AI turn persisted, no outbound media
+    streaming_tts_provider: str = "mock"  # mock (only)
+    streaming_tts_chunk_bytes: int = 400  # outbound audio bytes per media frame (pre-base64)
+    streaming_tts_max_text_chars: int = 2000  # cap reply chars synthesized per turn
+    streaming_tts_max_chunks_per_turn: int = 200  # cap media frames per turn (bounds output)
+    streaming_tts_voice_uz: str = "uz-UZ-MadinaNeural"
+    streaming_tts_voice_ru: str = "ru-RU-SvetlanaNeural"
+
     # Azure Speech
     azure_speech_key: str = ""
     azure_speech_region: str = "westeurope"

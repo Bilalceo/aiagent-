@@ -30,6 +30,11 @@ from app.services.voice.streaming_stt import (
     StreamingSTTProvider,
     StreamingSTTSessionService,
 )
+from app.services.voice.streaming_tts import (
+    MockStreamingTTSProvider,
+    StreamingTTSProvider,
+    TwilioPlaybackService,
+)
 from app.services.voice.streaming_turn import StreamingTurnService
 from app.services.voice.stt import MockSTTProvider, RealSTTProvider, STTProvider
 from app.services.voice.tts import (
@@ -243,4 +248,25 @@ def build_streaming_turn_service(session: AsyncSession) -> StreamingTurnService:
     return StreamingTurnService(
         build_call_session_service(session),
         max_transcript_chars=settings.streaming_stt_max_transcript_chars,
+    )
+
+
+def get_streaming_tts_provider() -> StreamingTTSProvider:
+    """Streaming TTS provider from STREAMING_TTS_PROVIDER (default mock)."""
+    if settings.streaming_tts_provider == "mock":
+        return MockStreamingTTSProvider()
+    raise RuntimeError(
+        f"STREAMING_TTS_PROVIDER={settings.streaming_tts_provider} is not implemented (mock)"
+    )
+
+
+def build_streaming_playback_service() -> TwilioPlaybackService:
+    """Mock-first outbound playback over the Twilio Media Stream (no barge-in)."""
+    return TwilioPlaybackService(
+        get_streaming_tts_provider(),
+        chunk_size=settings.streaming_tts_chunk_bytes,
+        max_text_chars=settings.streaming_tts_max_text_chars,
+        max_chunks=settings.streaming_tts_max_chunks_per_turn,
+        voice_uz=settings.streaming_tts_voice_uz,
+        voice_ru=settings.streaming_tts_voice_ru,
     )

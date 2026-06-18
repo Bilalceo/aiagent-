@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
+    build_streaming_playback_service,
     build_streaming_stt_session_service,
     build_streaming_turn_service,
     build_telephony_intake_service,
@@ -201,9 +202,10 @@ async def twilio_media_stream(
     TWILIO_USE_MEDIA_STREAMS and STREAMING_STT_ENABLED are both on, media frames
     are also fed to a (mock) StreamingSTTSessionService. A FINAL transcript is
     routed once through the full AI/safety pipeline (CallSessionService) and the
-    safe turn result is attached to the stream; partials never call the AI. This
-    is a TEXT turn only: no streaming TTS, no audio is sent back, no barge-in. Raw
-    audio payloads are NEVER logged or stored. Malformed events close safely.
+    safe turn result is attached to the stream; partials never call the AI. When
+    STREAMING_TTS_ENABLED is also on, the turn's reply is synthesized (mock) and
+    streamed back as `media` + `mark` events over this same socket. No barge-in.
+    Raw audio payloads are NEVER logged or stored. Malformed events close safely.
     """
     await websocket.accept()
     svc = build_telephony_stream_service(session)
@@ -212,8 +214,24 @@ async def twilio_media_stream(
     stream = None
     stt = None  # StreamingSTTSessionService, only when streaming_on
     turns = None  # StreamingTurnManager, only when turns_on + a call session is linked
+    playback = None  # TwilioPlaybackService, only when streaming_tts_enabled + turns active
     frames = 0
     stopped = False  # local guard (avoids reading possibly-expired stream.status)
+
+    async def _play_turn(turn: dict) -> None:
+        # Outbound mock playback over the SAME socket: media frames + a mark. Only
+        # when streaming TTS is enabled and the turn produced safe AI text. The
+        # summary (safe counts + mark name, NO raw audio/base64) is stored on the
+        # turn so it persists with the stream metadata. Never crashes the WS.
+        if playback is None or not turn or not turn.get("ai_text"):
+            return
+        turn["playback"] = await playback.play(
+            websocket.send_json,
+            stream_sid=stream.stream_sid if stream is not None else None,
+            ai_text=turn["ai_text"],
+            language=turn.get("language"),
+            turn_order=turn.get("order", 0),
+        )
 
     async def _run_finals(events) -> bool:
         # Only FINAL transcripts trigger an AI turn; partials are ignored here.
@@ -224,8 +242,9 @@ async def twilio_media_stream(
         ran = False
         for ev in events:
             if ev.is_final:
-                await turns.on_final(ev)
+                turn = await turns.on_final(ev)
                 ran = True
+                await _play_turn(turn)
         return ran
 
     async def _finalize(reason: str) -> None:
@@ -296,6 +315,9 @@ async def twilio_media_stream(
                                 stream_id=stream.id,
                                 max_turns=settings.streaming_stt_max_turns,
                             )
+                            # Outbound mock playback only when AI turns are active.
+                            if settings.streaming_tts_enabled:
+                                playback = build_streaming_playback_service()
                 # Do NOT log payloads or the token; only safe identifiers.
                 log.info("twilio_stream_started", stream_sid=stream.stream_sid)
             elif kind == "media":

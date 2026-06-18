@@ -94,9 +94,19 @@ A FINAL transcript now creates an AI TEXT turn: when
 the final transcript is routed once through the full AI/safety pipeline
 (`CallSessionService.handle_message`) and the safe turn (ai_text, action,
 reason_code, transferred, sources, ...) is persisted under `streaming_stt.turns`.
-Partials never call the AI. There is still NO streaming TTS and NO audio is sent
-back to Twilio - the reply text is produced and stored only. See
-docs/streaming-stt.md for the turn structure, limits, and safety guarantees.
+Partials never call the AI. See docs/streaming-stt.md for the turn structure,
+limits, and safety guarantees.
+
+## Streaming TTS playback (mock-first) - now available behind flags
+A FINAL transcript's AI reply can now be streamed BACK to Twilio. With the STT +
+AI-turn flags on AND `STREAMING_TTS_ENABLED=true`, the turn's `ai_text` is
+synthesized (mock) and sent over the SAME socket as `media` frames (base64 audio)
+followed by a `mark` event. Emergency / operator-transfer turns voice the official
+SAFE reply (103 / operator message). A safe playback summary (provider, chunks,
+bytes, mark name, degraded) is stored under each turn's `playback` block - never
+raw audio or base64. It is mock-only (the bytes are not real playable audio), and
+there is NO barge-in. Default is OFF (AI turn persisted, no outbound media). See
+docs/streaming-tts-playback.md.
 
 ## Next steps toward real-time voice
 1. Real streaming STT provider (Azure/Deepgram/OpenAI realtime) behind
@@ -105,10 +115,10 @@ docs/streaming-stt.md for the turn structure, limits, and safety guarantees.
 2. Real turn endpointing: trigger the AI turn from a provider end-of-utterance /
    silence signal instead of the mock's frame-count heuristic (the final ->
    AI-turn wiring already exists).
-3. Streaming TTS / playback: synthesize each turn's `ai_text` and send mu-law
-   frames back over the same WebSocket (`media` messages), with `mark` events for
-   playback tracking. This is the immediate next milestone.
-4. Barge-in: stop outbound TTS when inbound speech is detected (`clear` event).
+3. Real streaming TTS provider behind `StreamingTTSProvider`, emitting mu-law/8k
+   frames Twilio can actually play (the media/mark playback path already exists).
+4. Barge-in: stop outbound TTS when inbound speech is detected (`clear` event
+   builder already exists, not wired).
 5. Latency + audio-quality metrics and a live voice eval on top of the text evals.
 6. Optionally persist a placeholder inbound `AudioRecording`
    (kind=user_audio, content_type=audio/x-mulaw) once buffering is designed
