@@ -30,7 +30,8 @@ class AudioMeta(BaseModel):
 
 class STTMeta(BaseModel):
     language: str
-    confidence: float
+    # None when the provider does not return a calibrated confidence (e.g. Whisper).
+    confidence: Optional[float] = None
     duration_ms: Optional[int] = None
     provider: Optional[str] = None
 

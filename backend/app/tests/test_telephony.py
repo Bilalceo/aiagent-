@@ -119,6 +119,14 @@ async def test_audio_payload_creates_inbound_and_outbound_recordings(client, db_
 
 
 @pytest.mark.asyncio
+async def test_mock_webhook_twice_no_500(client) -> None:
+    # Regression: repeated inbound with no from/to must not collide on the Call SID.
+    for _ in range(2):
+        r = await client.post(MOCK_INBOUND, json={"text_override": "Salom"})
+        assert r.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_voice_simulate_still_works(client) -> None:
     r = await client.post(f"{API}/voice/simulate", json={"text_override": "Nafas ololmayapman"})
     assert r.status_code == 200

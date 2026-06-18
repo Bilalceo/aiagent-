@@ -160,38 +160,48 @@ class TwilioTelephonyService:
         self._authenticate(path=TWILIO_VOICE_PATH, form=form, signature=signature)
         event = self._provider.parse_form(form)
 
+        # start_call is idempotent on CallSid, so a Twilio webhook retry reuses the
+        # existing CallSession instead of inserting a duplicate.
         start = await self._css.start_call(
             from_number=event.from_number or _DEFAULT_FROM,
             to_number=event.to_number or _DEFAULT_TO,
             call_sid=event.provider_call_id,
         )
-        tel = TelephonyCall(
-            provider=self._provider.name,
-            provider_call_id=event.provider_call_id,
-            call_session_id=start.call.id,
-            from_number=event.from_number,
-            to_number=event.to_number,
-            status="in_progress",
-            direction=event.direction or "inbound",
-            raw_metadata=event.raw_metadata or None,
-        )
-        self._session.add(tel)
-        await self._session.flush()
-        await self._audit.record(
-            AuditEvent.TELEPHONY_CALL_STARTED,
-            call_id=start.call.id,
-            data={
-                "telephony_call_id": tel.id,
-                "provider": self._provider.name,
-                "provider_call_id": event.provider_call_id,
-            },
-        )
+        tel = await self._find_by_sid(event.provider_call_id)
+        if tel is None:
+            tel = TelephonyCall(
+                provider=self._provider.name,
+                provider_call_id=event.provider_call_id,
+                call_session_id=start.call.id,
+                from_number=event.from_number,
+                to_number=event.to_number,
+                status="in_progress",
+                direction=event.direction or "inbound",
+                raw_metadata=event.raw_metadata or None,
+            )
+            self._session.add(tel)
+            await self._session.flush()
+            await self._audit.record(
+                AuditEvent.TELEPHONY_CALL_STARTED,
+                call_id=start.call.id,
+                data={
+                    "telephony_call_id": tel.id,
+                    "provider": self._provider.name,
+                    "provider_call_id": event.provider_call_id,
+                },
+            )
+        else:
+            # Idempotent retry: reuse the existing record, keep linkage/status.
+            tel.call_session_id = start.call.id
+            tel.status = "in_progress"
         await self._session.commit()
 
         # Media Streams (spike): connect to the WebSocket instead of Gather.
         if self._provider.use_media_streams and self._provider.stream_url:
             return self._provider.build_media_stream_twiml(
-                greeting=start.greeting, stream_url=self._provider.stream_url
+                greeting=start.greeting,
+                stream_url=self._provider.stream_url,
+                call_sid=event.provider_call_id or "",
             )
         gather_action = self._provider.public_url_for(TWILIO_GATHER_PATH)
         return self._provider.build_greeting_twiml(
@@ -212,11 +222,14 @@ class TwilioTelephonyService:
             return self._provider.build_repeat_twiml(gather_action=gather_action)
 
         try:
+            # Twilio speaks ai_text via <Say>, so we skip TTS synthesis + outbound
+            # audio storage (avoids a wasted paid synthesis + DB write per turn).
             outcome = await self._pipeline.process(
                 call_id=tel.call_session_id,
                 text_override=event.speech_result,
                 from_number=tel.from_number or _DEFAULT_FROM,
                 to_number=tel.to_number or _DEFAULT_TO,
+                synthesize_audio=False,
             )
         except Exception:  # never leak a traceback into TwiML
             tel.status = "failed"

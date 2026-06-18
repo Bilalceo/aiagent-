@@ -66,6 +66,7 @@ class VoicePipelineService:
         from_number: str = "+998900000000",
         to_number: str = "+998711111111",
         language: Optional[str] = None,
+        synthesize_audio: bool = True,
     ) -> VoiceOutcome:
         # 1) Ensure a call session exists (so a degraded path still has a call_id).
         if call_id is None:
@@ -103,33 +104,37 @@ class VoicePipelineService:
             call_id=call_id, text=stt.text, language=language or stt.language
         )
 
-        # 4) Text-to-speech of the (already safety-checked) reply. Failure -> transfer.
-        try:
-            audio_result = await self._tts.synthesize(outcome.reply, language=outcome.language)
-        except TTSProviderError:
-            return self._degraded(
-                call_id, outcome.language, stage="tts", transcript=stt.text, stt=stt,
-                inbound_recording_id=inbound_id,
-            )
-
-        # 4b) Persist outbound TTS audio metadata.
+        # 4) Text-to-speech of the (already safety-checked) reply. Skipped when the
+        # caller speaks the reply itself (e.g. Twilio <Say>), which avoids a wasted
+        # (paid) synthesis + storage write per turn. Failure -> safe transfer.
+        audio_result: Optional[TTSResult] = None
         outbound_id: Optional[int] = None
-        if audio_result.audio_bytes and self._can_store():
+        if synthesize_audio:
             try:
-                stored = await self._storage.save_audio(
-                    audio_result.audio_bytes, content_type=audio_result.content_type,
-                    duration_ms=audio_result.duration_ms,
-                )
-                rec = await self._recordings.create(
-                    call_session_id=call_id, direction="outbound", kind="ai_tts",
-                    stored=stored, tts_voice=audio_result.voice, tts_text=audio_result.text,
-                )
-                outbound_id = rec.id
-            except AudioStorageError:
+                audio_result = await self._tts.synthesize(outcome.reply, language=outcome.language)
+            except TTSProviderError:
                 return self._degraded(
-                    call_id, outcome.language, stage="storage", transcript=stt.text, stt=stt,
+                    call_id, outcome.language, stage="tts", transcript=stt.text, stt=stt,
                     inbound_recording_id=inbound_id,
                 )
+
+            # 4b) Persist outbound TTS audio metadata.
+            if audio_result.audio_bytes and self._can_store():
+                try:
+                    stored = await self._storage.save_audio(
+                        audio_result.audio_bytes, content_type=audio_result.content_type,
+                        duration_ms=audio_result.duration_ms,
+                    )
+                    rec = await self._recordings.create(
+                        call_session_id=call_id, direction="outbound", kind="ai_tts",
+                        stored=stored, tts_voice=audio_result.voice, tts_text=audio_result.text,
+                    )
+                    outbound_id = rec.id
+                except AudioStorageError:
+                    return self._degraded(
+                        call_id, outcome.language, stage="storage", transcript=stt.text, stt=stt,
+                        inbound_recording_id=inbound_id,
+                    )
 
         return VoiceOutcome(
             call_id=call_id,

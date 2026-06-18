@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,10 +76,23 @@ class CallSessionService:
     ) -> CallStart:
         lang = Language.from_code(language_code) or Language.UNKNOWN
         greeting = self._greeting.greet(lang)
-        locale = lang.locale if lang is not Language.UNKNOWN else None
 
+        # Idempotency: a telephony provider may RETRY the inbound webhook with the
+        # same call_sid. Reuse the existing call instead of inserting a duplicate
+        # (calls.twilio_call_sid is UNIQUE). When no call_sid is supplied, generate
+        # a unique one so repeated simulations never collide.
+        if call_sid is not None:
+            existing = (
+                await self._session.execute(
+                    select(Call).where(Call.twilio_call_sid == call_sid)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return CallStart(call=existing, greeting=greeting, language=lang)
+
+        locale = lang.locale if lang is not Language.UNKNOWN else None
         call = Call(
-            twilio_call_sid=call_sid or f"sim-{from_number}-{to_number}",
+            twilio_call_sid=call_sid or f"sim-{uuid4().hex}",
             from_number=from_number,
             to_number=to_number,
             language=locale,

@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import time
 from typing import Callable, Optional
 from xml.sax.saxutils import escape, quoteattr
 
@@ -116,6 +117,48 @@ class TwilioTelephonyProvider(TelephonyProvider):
         # Never echo the signature or token.
         return ValidationResult(ok=False, reason="invalid_twilio_signature")
 
+    # --- media-stream token (WebSocket auth) --------------------------------
+    # Twilio's WS upgrade has no X-Twilio-Signature, so we pass a short-lived HMAC
+    # token via <Parameter> in the <Stream> TwiML and verify it in the start event.
+    def make_stream_token(self, call_sid: str, *, ttl_seconds: int = 3600) -> str:
+        exp = int(time.time()) + ttl_seconds
+        payload = f"{call_sid}.{exp}"
+        sig = hmac.new(
+            self._auth_token.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        return f"{payload}.{sig}"
+
+    def validate_stream_token(
+        self,
+        token: Optional[str],
+        *,
+        call_sid: Optional[str] = None,
+        now: Optional[int] = None,
+    ) -> bool:
+        if not token:
+            return False
+        parts = token.rsplit(".", 2)  # call_sid may contain '.', exp/sig do not
+        if len(parts) != 3:
+            return False
+        tok_call_sid, exp_s, sig = parts
+        expected = hmac.new(
+            self._auth_token.encode("utf-8"),
+            f"{tok_call_sid}.{exp_s}".encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            return False
+        try:
+            exp = int(exp_s)
+        except ValueError:
+            return False
+        current = now if now is not None else int(time.time())
+        if exp < current:
+            return False
+        if call_sid is not None and tok_call_sid != call_sid:
+            return False
+        return True
+
     # --- form parsing -------------------------------------------------------
     def parse_form(self, form: dict) -> InboundCallEvent:
         call_sid = _s(form.get("CallSid"))
@@ -173,16 +216,27 @@ class TwilioTelephonyProvider(TelephonyProvider):
         )
         return self._response(body)
 
-    def build_media_stream_twiml(self, *, greeting: str, stream_url: str, language: str = "") -> str:
+    def build_media_stream_twiml(
+        self, *, greeting: str, stream_url: str, call_sid: str = "", language: str = ""
+    ) -> str:
         """Connect the call to a Media Streams WebSocket (spike).
 
         Twilio opens a WebSocket to `stream_url` and sends connected/start/media/
-        stop JSON events. This does not itself implement streaming STT/TTS.
+        stop JSON events. A signed `stream_token` is passed via <Parameter> so the
+        WebSocket can authenticate the connection. This does not itself implement
+        streaming STT/TTS.
         """
         lang = language or self._gather_language
+        params = ""
+        if call_sid:
+            token = self.make_stream_token(call_sid)
+            params = (
+                f"<Parameter name=\"call_sid\" value={quoteattr(call_sid)}/>"
+                f"<Parameter name=\"stream_token\" value={quoteattr(token)}/>"
+            )
         body = (
             f"<Say{self._say_attrs(lang)}>{escape(greeting)}</Say>"
-            f"<Connect><Stream url={quoteattr(stream_url)}/></Connect>"
+            f"<Connect><Stream url={quoteattr(stream_url)}>{params}</Stream></Connect>"
         )
         return self._response(body)
 

@@ -245,6 +245,19 @@ async def test_voice_simulate_requires_input(client) -> None:
     assert resp.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_voice_simulate_handles_none_confidence(client, monkeypatch) -> None:
+    # Regression: real STT returns confidence=None; the endpoint must not 500.
+    from app.api import deps
+
+    monkeypatch.setattr(deps, "get_stt_provider", lambda: RealSTTProvider(api_key="sk-test"))
+    resp = await client.post(
+        f"{API}/voice/simulate", json={"text_override": "Klinika manzili qayerda?"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["stt"]["confidence"] is None
+
+
 # --- audio storage / recordings --------------------------------------------
 @pytest.mark.asyncio
 async def test_inbound_and_outbound_recordings_created(db_session: AsyncSession) -> None:

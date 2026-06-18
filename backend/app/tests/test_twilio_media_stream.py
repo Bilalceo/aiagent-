@@ -31,6 +31,12 @@ VOICE = f"{API}/telephony/twilio/voice"
 WS_URL = f"{API}/telephony/twilio/media-stream"
 VALID = {"X-Twilio-Signature": "VALID"}
 
+# Shared Twilio provider for WebSocket token signing/validation (no network).
+_WS_PROVIDER = TwilioTelephonyProvider(
+    auth_token="ws-secret", public_base_url="https://x", validate_signature=False
+)
+_OMIT = object()  # sentinel: omit the stream_token entirely
+
 
 def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode()
@@ -87,17 +93,21 @@ async def test_voice_returns_media_stream_twiml_when_enabled(client, media_strea
     xml = r.text
     assert "<Connect>" in xml and "<Stream" in xml
     assert "<Gather" not in xml
+    # TwiML carries the signed stream token + call_sid as <Parameter>s.
+    assert "stream_token" in xml and "<Parameter" in xml
 
 
 # --- TelephonyStreamService (DB-backed counting) ----------------------------
-def _start_event(stream_sid="MZ1", call_sid="CA1") -> dict:
-    return {
-        "event": "start", "sequenceNumber": "1", "streamSid": stream_sid,
-        "start": {
-            "streamSid": stream_sid, "callSid": call_sid, "tracks": ["inbound"],
-            "mediaFormat": {"encoding": "audio/x-mulaw", "sampleRate": 8000, "channels": 1},
-        },
+def _start_event(stream_sid="MZ1", call_sid="CA1", token=_OMIT) -> dict:
+    start = {
+        "streamSid": stream_sid, "callSid": call_sid, "tracks": ["inbound"],
+        "mediaFormat": {"encoding": "audio/x-mulaw", "sampleRate": 8000, "channels": 1},
     }
+    # Default: a valid signed token. token=None omits it; a string injects it.
+    tok = _WS_PROVIDER.make_stream_token(call_sid) if token is _OMIT else token
+    if tok is not None:
+        start["customParameters"] = {"call_sid": call_sid, "stream_token": tok}
+    return {"event": "start", "sequenceNumber": "1", "streamSid": stream_sid, "start": start}
 
 
 def _media_event(payload: str, seq="2") -> dict:
@@ -155,7 +165,11 @@ async def test_stream_links_existing_telephony_call(db_session: AsyncSession) ->
 
 # --- WebSocket endpoint (Starlette TestClient, dedicated engine) ------------
 @pytest.fixture
-def ws_client():
+def ws_client(monkeypatch):
+    import app.api.v1.telephony as tele
+
+    # WebSocket auth uses the Twilio provider's stream-token validator.
+    monkeypatch.setattr(tele, "get_telephony_provider", lambda: _WS_PROVIDER)
     engine = create_async_engine(
         "sqlite+aiosqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
     )
@@ -207,6 +221,43 @@ def test_ws_invalid_base64_media_is_safe(ws_client) -> None:
             ws.receive_json()
 
 
+# --- WebSocket auth (signed stream token) -----------------------------------
+def test_stream_token_roundtrip_and_tampering() -> None:
+    tok = _WS_PROVIDER.make_stream_token("CA-tok")
+    assert _WS_PROVIDER.validate_stream_token(tok, call_sid="CA-tok")
+    # wrong call_sid, tampered signature, and missing token all fail.
+    assert not _WS_PROVIDER.validate_stream_token(tok, call_sid="CA-other")
+    assert not _WS_PROVIDER.validate_stream_token(tok[:-1] + ("0" if tok[-1] != "0" else "1"))
+    assert not _WS_PROVIDER.validate_stream_token(None)
+    assert not _WS_PROVIDER.validate_stream_token("not.a.token")
+    # expired token (exp in the past via now far in the future) fails.
+    assert not _WS_PROVIDER.validate_stream_token(tok, now=9_999_999_999)
+
+
+def test_ws_missing_token_rejected(ws_client) -> None:
+    # No customParameters -> not authorized -> socket closed before any start_stream.
+    with ws_client.websocket_connect(WS_URL) as ws:
+        ws.send_json(_start_event("MZ-miss", "CA-miss", token=None))
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()
+
+
+def test_ws_invalid_token_rejected(ws_client) -> None:
+    with ws_client.websocket_connect(WS_URL) as ws:
+        ws.send_json(_start_event("MZ-bad", "CA-bad", token="CA-bad.9999999999.deadbeef"))
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()
+
+
+def test_ws_valid_token_accepted(ws_client) -> None:
+    with ws_client.websocket_connect(WS_URL) as ws:
+        ws.send_json(_start_event("MZ-ok", "CA-ok"))  # valid token by default
+        ws.send_json(_media_event(_b64(b"\x00" * 160)))
+        ws.send_json({"event": "stop", "streamSid": "MZ-ok", "stop": {}})
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()
+
+
 # --- admin reads ------------------------------------------------------------
 def _bh(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
@@ -239,6 +290,8 @@ async def test_admin_can_list_streams(client, db_session) -> None:
     assert "media_frames_count" in body[0]
     detail = await client.get(f"{API}/admin/telephony-streams/{body[0]['id']}", headers=_bh(token))
     assert detail.status_code == 200
+    # The stream_token is never persisted/exposed in admin metadata.
+    assert "stream_token" not in detail.text
 
 
 @pytest.mark.asyncio

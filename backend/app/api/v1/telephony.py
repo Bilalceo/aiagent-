@@ -17,6 +17,7 @@ from app.api.deps import (
     build_telephony_stream_service,
     build_twilio_telephony_service,
     get_session,
+    get_telephony_provider,
 )
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -26,6 +27,7 @@ from app.services.telephony.provider import (
     TelephonySignatureError,
 )
 from app.services.telephony.stream import TelephonyStreamError
+from app.services.telephony.twilio import TwilioTelephonyProvider
 
 router = APIRouter()
 log = get_logger("telephony")
@@ -33,6 +35,7 @@ log = get_logger("telephony")
 _TWILIO_SIGNATURE_HEADER = "X-Twilio-Signature"
 _XML = "application/xml"
 _WS_UNSUPPORTED = 1003  # close code: unsupported data (malformed event)
+_WS_POLICY = 1008  # close code: policy violation (auth failure)
 
 
 async def _process(request: Request, session: AsyncSession, *, provider=None) -> Response:
@@ -138,6 +141,27 @@ async def twilio_status(
 
 
 # --- Twilio Media Streams WebSocket (spike: parse/lifecycle only) ------------
+def _authorize_stream(event: dict) -> bool:
+    """Validate the signed stream_token from the start event's customParameters.
+
+    Returns False (caller closes) when the provider is not Twilio, the token is
+    missing/invalid/expired, or it does not match the start callSid.
+    """
+    try:
+        provider = get_telephony_provider()
+    except RuntimeError:
+        return False
+    if not isinstance(provider, TwilioTelephonyProvider):
+        return False
+    start = event.get("start") or {}
+    params = start.get("customParameters") or {}
+    if not isinstance(params, dict):
+        return False
+    token = params.get("stream_token")
+    call_sid = start.get("callSid") or params.get("call_sid")
+    return provider.validate_stream_token(token, call_sid=call_sid)
+
+
 @router.websocket("/twilio/media-stream")
 async def twilio_media_stream(
     websocket: WebSocket, session: AsyncSession = Depends(get_session)
@@ -171,12 +195,17 @@ async def twilio_media_stream(
             if kind == "connected":
                 continue
             if kind == "start":
+                # Authenticate BEFORE creating any TelephonyStream row: validate the
+                # signed stream_token passed via <Parameter> in the Connect/Stream TwiML.
+                if not _authorize_stream(event):
+                    await websocket.close(code=_WS_POLICY)
+                    return
                 try:
                     stream = await svc.start_stream(event)
                 except TelephonyStreamError:
                     await websocket.close(code=_WS_UNSUPPORTED)
                     return
-                # Do NOT log payloads; only safe identifiers.
+                # Do NOT log payloads or the token; only safe identifiers.
                 log.info("twilio_stream_started", stream_sid=stream.stream_sid)
             elif kind == "media":
                 if stream is not None:

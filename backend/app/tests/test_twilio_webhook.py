@@ -16,11 +16,14 @@ from app.core.config import settings
 from app.core.db import get_session
 from app.main import app
 from app.services.knowledge.seed import seed_demo_clinic
+from app.services.telephony.service import TelephonyCallService
 from app.services.telephony.twilio import (
     TwilioTelephonyProvider,
     compute_twilio_signature,
     validate_twilio_signature,
 )
+from app.services.voice.recordings import AudioRecordingService
+from app.services.voice.tts import MockTTSProvider
 
 API = "/api/v1"
 VOICE = f"{API}/telephony/twilio/voice"
@@ -229,3 +232,69 @@ async def test_twilio_status_callback_updates_status(client, twilio_provider) ->
     )
     assert r.status_code == 200
     assert "<Response" in r.text
+
+
+# --- regression: idempotency + no-TTS-on-gather (A23.1) ---------------------
+class _CountingTTS(MockTTSProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    async def synthesize(self, text, *, language, voice=None):
+        self.calls += 1
+        return await super().synthesize(text, language=language, voice=voice)
+
+
+@pytest.mark.asyncio
+async def test_twilio_voice_idempotent_on_same_callsid(client, twilio_provider, db_session) -> None:
+    from sqlalchemy import func, select
+
+    from app.models.call import Call
+    from app.models.telephony_call import TelephonyCall
+
+    data = {"CallSid": "CA-dup", "From": "+998901112233", "To": "+998711111111"}
+    r1 = await client.post(VOICE, data=data, headers=VALID)
+    r2 = await client.post(VOICE, data=data, headers=VALID)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert "<Response>" in r2.text and "<Gather" in r2.text
+
+    calls = (
+        await db_session.execute(
+            select(func.count()).select_from(Call).where(Call.twilio_call_sid == "CA-dup")
+        )
+    ).scalar()
+    tels = (
+        await db_session.execute(
+            select(func.count())
+            .select_from(TelephonyCall)
+            .where(TelephonyCall.provider_call_id == "CA-dup")
+        )
+    ).scalar()
+    assert calls == 1  # idempotent: no duplicate Call
+    assert tels == 1  # idempotent: no duplicate TelephonyCall
+
+
+@pytest.mark.asyncio
+async def test_twilio_gather_skips_tts_and_outbound_storage(
+    client, twilio_provider, db_session, monkeypatch
+) -> None:
+    await seed_demo_clinic(db_session)
+    await db_session.commit()
+    tts = _CountingTTS()
+    monkeypatch.setattr(deps, "get_tts_provider", lambda: tts)
+
+    await client.post(
+        VOICE, data={"CallSid": "CA-notts", "From": "+998901112233", "To": "+998711111111"},
+        headers=VALID,
+    )
+    r = await client.post(
+        GATHER, data={"CallSid": "CA-notts", "SpeechResult": "Klinika manzili qayerda?"},
+        headers=VALID,
+    )
+    assert r.status_code == 200
+    assert "<Say" in r.text  # ai_text spoken via TwiML
+    assert tts.calls == 0  # Twilio speaks it; we never synthesize audio
+
+    tel = (await TelephonyCallService(db_session).list(provider="twilio"))[0]
+    recs = await AudioRecordingService(db_session).list_for_call(tel.call_session_id)
+    assert all(rec.kind != "ai_tts" for rec in recs)  # no outbound audio stored
