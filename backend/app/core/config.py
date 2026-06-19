@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     barge_in_on_final: bool = True  # a final transcript triggers barge-in
     barge_in_min_transcript_chars: int = 1  # ignore shorter (noise) transcripts
 
+    # Streaming latency metrics (instrumentation only): record pipeline event
+    # offsets + durations (ms) into stream_metadata.latency. No audio, no payloads.
+    streaming_metrics_enabled: bool = True  # safe numeric metrics, on by default
+    streaming_metrics_include_timestamps: bool = False  # add wall-clock ISO times (default off)
+
     # Azure Speech
     azure_speech_key: str = ""
     azure_speech_region: str = "westeurope"

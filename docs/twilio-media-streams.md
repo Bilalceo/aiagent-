@@ -117,6 +117,14 @@ marks the playback `interrupted` in metadata. Incoming Twilio `mark` echoes
 complete a playback (`status=completed`). There is no real VAD - the transcript IS
 the speech signal. Default OFF. See docs/barge-in.md.
 
+## Latency metrics (instrumentation only) - now available
+Numeric latency instrumentation is recorded for the streaming pipeline (event
+offsets + durations in ms) and attached to `stream_metadata.latency`, with
+per-turn `metrics`. It is on by default (`STREAMING_METRICS_ENABLED=true`), holds
+numbers only (no audio/payloads), and is visible via the admin stream-detail
+endpoint. It measures the mock pipeline today; the same hooks measure REAL
+provider latency once integrated. See docs/streaming-latency-metrics.md.
+
 ## Next steps toward real-time voice
 1. Real streaming STT provider (Azure/Deepgram/OpenAI realtime) behind
    `StreamingSTTProvider`: feed mu-law frames to a streaming recognizer; emit

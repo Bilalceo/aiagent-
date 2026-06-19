@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     build_barge_in_controller,
+    build_latency_tracker,
     build_streaming_playback_service,
     build_streaming_stt_session_service,
     build_streaming_turn_service,
@@ -220,6 +221,12 @@ async def twilio_media_stream(
     turns = None  # StreamingTurnManager, only when turns_on + a call session is linked
     playback = None  # TwilioPlaybackService, only when streaming_tts_enabled + turns active
     barge = build_barge_in_controller()  # tracks active playback + handles clear/mark
+    metrics = build_latency_tracker()  # numeric latency instrumentation (no audio)
+    metrics.mark("websocket_connected_at")
+    if metrics.enabled:
+        # Stamp clear/mark times on the playback summary ONLY when metrics are on,
+        # so a disabled tracker never writes (None) timing keys into metadata.
+        barge.offset_fn = metrics.offset_now
     frames = 0
     stopped = False  # local guard (avoids reading possibly-expired stream.status)
 
@@ -230,15 +237,35 @@ async def twilio_media_stream(
         # turn so it persists with the stream metadata. Never crashes the WS.
         if playback is None or not turn or not turn.get("ai_text"):
             return
+        pb_start = metrics.now()
+        metrics.mark("tts_playback_started_at")
         turn["playback"] = await playback.play(
             websocket.send_json,
             stream_sid=stream_sid,
             ai_text=turn["ai_text"],
             language=turn.get("language"),
             turn_order=turn.get("order", 0),
+            clock=metrics.now,
         )
+        pb_end = metrics.now()
+        metrics.mark("tts_playback_completed_at")
+        pb = turn["playback"]
+        ttfc = pb.get("time_to_first_chunk_ms")
+        metrics.set_duration("tts_time_to_first_chunk_ms", ttfc)
+        metrics.set_duration("tts_playback_duration_ms", pb.get("playback_duration_ms"))
+        if ttfc is not None:
+            metrics.mark_at("first_tts_chunk_sent_at", pb_start + ttfc / 1000.0)
         # Track this playback so caller speech can barge-in and Twilio marks complete it.
-        barge.begin_playback(turn["playback"])
+        barge.begin_playback(pb)
+        if metrics.enabled and isinstance(turn.get("metrics"), dict):
+            m = turn["metrics"]
+            m["playback_started_at_ms"] = metrics.offset(pb_start)
+            m["playback_completed_at_ms"] = metrics.offset(pb_end)
+            m["playback_duration_ms"] = pb.get("playback_duration_ms")
+            start_off = m["playback_started_at_ms"]
+            m["first_chunk_sent_at_ms"] = (
+                start_off + ttfc if (ttfc is not None and start_off is not None) else None
+            )
 
     async def _run_finals(events) -> bool:
         # Only FINAL transcripts trigger an AI turn; partials are ignored here.
@@ -249,8 +276,18 @@ async def twilio_media_stream(
         ran = False
         for ev in events:
             if ev.is_final:
+                ai_start = metrics.now()
+                metrics.mark("ai_turn_started_at")
                 turn = await turns.on_final(ev)
+                ai_end = metrics.now()
+                metrics.mark("ai_turn_completed_at")
                 ran = True
+                if metrics.enabled and turn is not None:
+                    turn["metrics"] = {
+                        "ai_started_at_ms": metrics.offset(ai_start),
+                        "ai_completed_at_ms": metrics.offset(ai_end),
+                        "ai_duration_ms": int(round((ai_end - ai_start) * 1000)),
+                    }
                 await _play_turn(turn)
         return ran
 
@@ -259,11 +296,19 @@ async def twilio_media_stream(
             return
         final_events = await stt.finish()
         await _run_finals(final_events)
+        metrics.mark("stream_stopped_at")
         # Summary holds counts + recognized text (+ AI turns); never raw audio/base64.
         summary = stt.summary(stopped_reason=reason)
         if turns is not None:
             summary.update(turns.summary())
         await svc.attach_streaming_summary(stream, summary)
+        # Metrics are best-effort: a metrics-persist failure must not crash the WS
+        # or lose the streaming summary already attached above.
+        try:
+            if metrics.enabled:
+                await svc.attach_latency_summary(stream, metrics.summary())
+        except Exception:
+            log.info("twilio_stream_metrics_skipped")
 
     try:
         while True:
@@ -304,6 +349,7 @@ async def twilio_media_stream(
                     await websocket.close(code=_WS_UNSUPPORTED)
                     return
                 stream_sid = stream.stream_sid
+                metrics.mark("stream_started_at")
                 if streaming_on:
                     start_obj = event.get("start") or {}
                     params = start_obj.get("customParameters")
@@ -330,6 +376,8 @@ async def twilio_media_stream(
                 log.info("twilio_stream_started", stream_sid=stream.stream_sid)
             elif kind == "media":
                 if stream is not None:
+                    metrics.mark("first_media_frame_at")
+                    metrics.mark("last_media_frame_at", once=False)
                     # Decode the payload at most ONCE; reuse it for counting + frame.
                     decoded = None
                     if stt is not None:
@@ -345,9 +393,20 @@ async def twilio_media_stream(
                         events = await stt.push_frame(
                             _build_audio_frame(event, stream, decoded or b"")
                         )
+                        for _ev in events:
+                            metrics.mark(
+                                "first_final_transcript_at" if _ev.is_final
+                                else "first_partial_transcript_at"
+                            )
                         # Barge-in: caller speech (partial/final) during active
                         # playback clears the queued audio BEFORE the new AI turn.
-                        await barge.maybe_barge_in(events, websocket.send_json, stream_sid)
+                        speech_at = metrics.now()
+                        if await barge.maybe_barge_in(events, websocket.send_json, stream_sid):
+                            metrics.mark("clear_sent_at")
+                            metrics.set_duration(
+                                "barge_in_clear_latency_ms",
+                                int(round((metrics.now() - speech_at) * 1000)),
+                            )
                         if await _run_finals(events):
                             # A turn may have rolled the session back (expiring the
                             # stream); re-bind so later frames/finalize stay valid.
@@ -363,7 +422,8 @@ async def twilio_media_stream(
                 # Unknown/duplicate marks are idempotent no-ops (never crash).
                 mark = event.get("mark")
                 name = mark.get("name") if isinstance(mark, dict) else None
-                barge.on_mark(name)
+                if barge.on_mark(name):
+                    metrics.mark("mark_received_at")
             elif kind == "stop":
                 if stream is not None:
                     await _finalize("stop_event")

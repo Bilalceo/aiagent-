@@ -109,8 +109,13 @@ class TwilioPlaybackService:
         language: Optional[str] = None,
         voice: Optional[str] = None,
         turn_order: int = 0,
+        clock: Optional[Callable[[], float]] = None,
     ) -> dict:
-        """Stream the reply as media + mark. Returns a SAFE playback summary."""
+        """Stream the reply as media + mark. Returns a SAFE playback summary.
+
+        When `clock` (a monotonic now() ) is provided, self-contained latency
+        DURATIONS (time_to_first_chunk_ms, playback_duration_ms) are added to the
+        summary - numbers only, no absolute times."""
         resolved_voice = _resolve_voice(language, voice, self._voice_uz, self._voice_ru)
         mark_name = f"{stream_sid or 'stream'}:turn:{turn_order}"
         summary = {
@@ -156,11 +161,15 @@ class TwilioPlaybackService:
             chunks = chunks[: self._max_chunks]
             summary["truncated"] = True
 
+        started = clock() if clock is not None else None
+        first_chunk_at = None
         try:
             for ch in chunks:
                 # Encode each chunk to base64 exactly once.
                 payload = base64.b64encode(ch).decode("ascii")
                 await send(build_media_message(stream_sid, payload))
+                if first_chunk_at is None and clock is not None:
+                    first_chunk_at = clock()
                 summary["chunks_sent"] += 1
                 summary["bytes_sent"] += len(ch)  # raw audio bytes, never the payload
             await send(build_mark_message(stream_sid, mark_name))
@@ -170,6 +179,11 @@ class TwilioPlaybackService:
             summary["error"] = "send_error"
             return summary
 
+        if clock is not None and started is not None:
+            completed = clock()
+            if first_chunk_at is not None:
+                summary["time_to_first_chunk_ms"] = int(round((first_chunk_at - started) * 1000))
+            summary["playback_duration_ms"] = int(round((completed - started) * 1000))
         return summary
 
 
@@ -196,24 +210,32 @@ class BargeInController:
         self._on_final = on_final
         self._min_chars = max(1, min_chars)
         self.active: Optional[dict] = None  # active playback summary, awaiting mark/interrupt
+        # Optional latency stamping: returns the current ms-offset (or None). When
+        # set, clear/mark events also record `*_at_ms` on the playback summary.
+        self.offset_fn: Optional[Callable[[], Optional[int]]] = None
 
     def begin_playback(self, summary: Optional[dict]) -> None:
         """Track a freshly-sent playback. Only a successful (non-degraded) playback
         can be interrupted; a degraded one is never marked active."""
         self.active = summary if (summary and not summary.get("degraded")) else None
 
-    def on_mark(self, name: Optional[str]) -> None:
+    def on_mark(self, name: Optional[str]) -> bool:
         """Handle a Twilio `mark` echo: complete the active playback if it matches.
 
-        Unknown names and duplicate/late marks are no-ops (idempotent, no crash)."""
+        Returns True if the matching playback was completed. Unknown names and
+        duplicate/late marks are no-ops (idempotent, no crash)."""
         a = self.active
         if a is None or not name:
-            return
+            return False
         if a.get("mark_name") == name and not a.get("mark_received"):
             a["mark_received"] = True
+            if self.offset_fn is not None:
+                a["mark_received_at_ms"] = self.offset_fn()
             if not a.get("interrupted"):
                 a["status"] = "completed"
             self.active = None  # playback finished
+            return True
+        return False
 
     def _qualifies(self, events) -> bool:
         """True if any event is caller speech that should interrupt playback."""
@@ -252,5 +274,7 @@ class BargeInController:
         a["interrupted"] = True
         a["interruption_reason"] = "caller_speech"
         a["status"] = "interrupted"
+        if self.offset_fn is not None:
+            a["clear_sent_at_ms"] = self.offset_fn()
         self.active = None  # interrupted; no further barge-in for this playback
         return True

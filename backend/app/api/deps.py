@@ -30,6 +30,7 @@ from app.services.voice.streaming_stt import (
     StreamingSTTProvider,
     StreamingSTTSessionService,
 )
+from app.services.voice.streaming_metrics import StreamingLatencyTracker
 from app.services.voice.streaming_tts import (
     BargeInController,
     MockStreamingTTSProvider,
@@ -280,4 +281,12 @@ def build_barge_in_controller() -> BargeInController:
         on_partial=settings.barge_in_on_partial,
         on_final=settings.barge_in_on_final,
         min_chars=settings.barge_in_min_transcript_chars,
+    )
+
+
+def build_latency_tracker() -> StreamingLatencyTracker:
+    """Per-stream latency metrics tracker (instrumentation only; numbers only)."""
+    return StreamingLatencyTracker(
+        enabled=settings.streaming_metrics_enabled,
+        include_timestamps=settings.streaming_metrics_include_timestamps,
     )

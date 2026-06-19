@@ -155,6 +155,19 @@ class TelephonyStreamService:
         await self._session.refresh(stream)
         return stream
 
+    async def attach_latency_summary(
+        self, stream: TelephonyStream, latency: dict
+    ) -> TelephonyStream:
+        """Merge the streaming latency metrics (numeric ms offsets/durations only,
+        NO raw audio/base64/secrets) into stream_metadata.latency for admin view."""
+        stream = await self.ensure_live(stream)
+        meta = dict(stream.stream_metadata or {})
+        meta["latency"] = latency
+        stream.stream_metadata = meta
+        await self._session.commit()
+        await self._session.refresh(stream)
+        return stream
+
     async def resolve_call_session_id(self, stream: TelephonyStream) -> Optional[int]:
         """Resolve the linked text-simulation Call id (CallSession) for a stream.
 
