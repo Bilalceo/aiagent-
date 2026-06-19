@@ -304,13 +304,32 @@ def _seeded_ws(monkeypatch, *, call_sid, script, barge_enabled, on_partial=True,
     return TestClient(app)
 
 
+def _recv_until(ws, event_type):
+    """Read outbound messages up to and INCLUDING the first one of event_type.
+
+    Draining the server's output promptly (before the client sends more) keeps the
+    server from blocking on a bounded send buffer while the client is mid-send -
+    that mutual block deadlocks on newer starlette TestClient buffering.
+    """
+    msgs = []
+    while True:
+        m = ws.receive_json()
+        msgs.append(m)
+        if m["event"] == event_type:
+            return msgs
+
+
 def _drain(ws):
-    """Read every outbound message until the socket closes."""
+    """Read every remaining outbound message until the socket closes."""
     msgs = []
     with pytest.raises(WebSocketDisconnect):
         while True:
             msgs.append(ws.receive_json())
     return msgs
+
+
+def _stop(ws, sid):
+    ws.send_json({"event": "stop", "streamSid": sid, "stop": {}})
 
 
 # --- WS: barge-in disabled keeps A26 behavior --------------------------------
@@ -320,13 +339,15 @@ def test_ws_barge_disabled_sends_no_clear(monkeypatch, attach_spy) -> None:
     try:
         with client.websocket_connect(WS_URL) as ws:
             ws.send_json(_ws_start("MZ-bd", "CA-bd"))
-            ws.send_json(_media(2))  # final -> turn + playback active
-            ws.send_json(_media(3))  # partial -> would barge-in, but disabled
-            ws.send_json({"event": "stop", "streamSid": "MZ-bd", "stop": {}})
-            msgs = _drain(ws)
+            ws.send_json(_media(2))  # final -> turn + playback
+            play = _recv_until(ws, "mark")  # drain playback BEFORE sending more
+            ws.send_json(_media(3))  # partial -> barge disabled -> no output
+            _stop(ws, "MZ-bd")
+            rest = _drain(ws)
     finally:
         app.dependency_overrides.clear()
-    assert [m for m in msgs if m["event"] == "clear"] == []  # no clear when disabled
+    all_msgs = play + rest
+    assert [m for m in all_msgs if m["event"] == "clear"] == []  # no clear when disabled
     pb = attach_spy[-1]["turns"][0]["playback"]
     assert pb["clear_sent"] is False and pb["interrupted"] is False
 
@@ -338,14 +359,16 @@ def test_ws_barge_partial_sends_single_clear(monkeypatch, attach_spy) -> None:
     try:
         with client.websocket_connect(WS_URL) as ws:
             ws.send_json(_ws_start("MZ-bp", "CA-bp"))
-            ws.send_json(_media(2))
+            ws.send_json(_media(2))  # final -> playback
+            _recv_until(ws, "mark")  # drain playback
             ws.send_json(_media(3))  # partial -> clear
-            ws.send_json(_media(4))  # partial again -> NO second clear
-            ws.send_json({"event": "stop", "streamSid": "MZ-bp", "stop": {}})
-            msgs = _drain(ws)
+            got = _recv_until(ws, "clear")  # receive the one clear
+            ws.send_json(_media(4))  # partial again -> NO second clear (no output)
+            _stop(ws, "MZ-bp")
+            rest = _drain(ws)
     finally:
         app.dependency_overrides.clear()
-    clears = [m for m in msgs if m["event"] == "clear"]
+    clears = [m for m in got + rest if m["event"] == "clear"]
     assert clears == [{"event": "clear", "streamSid": "MZ-bp"}]  # exactly one
     pb = attach_spy[-1]["turns"][0]["playback"]
     assert pb["clear_sent"] is True and pb["interrupted"] is True
@@ -361,13 +384,15 @@ def test_ws_barge_final_clears_prior_playback(monkeypatch, attach_spy) -> None:
     try:
         with client.websocket_connect(WS_URL) as ws:
             ws.send_json(_ws_start("MZ-bf", "CA-bf"))
-            ws.send_json(_media(2))  # final 1 -> turn0 + playback
-            ws.send_json(_media(3))  # final 2 -> clears turn0 playback, then turn1
-            ws.send_json({"event": "stop", "streamSid": "MZ-bf", "stop": {}})
-            msgs = _drain(ws)
+            ws.send_json(_media(2))  # final0 -> turn0 + playback
+            _recv_until(ws, "mark")  # drain turn0 playback
+            ws.send_json(_media(3))  # final1 -> clear(turn0), then turn1 + playback
+            got = _recv_until(ws, "mark")  # collects clear + turn1 media + its mark
+            _stop(ws, "MZ-bf")
+            rest = _drain(ws)
     finally:
         app.dependency_overrides.clear()
-    assert len([m for m in msgs if m["event"] == "clear"]) == 1
+    assert len([m for m in got + rest if m["event"] == "clear"]) == 1
     turns = attach_spy[-1]["turns"]
     assert turns[0]["playback"]["interrupted"] is True  # first playback interrupted
     assert turns[1]["playback"]["mark_name"] == "MZ-bf:turn:1"  # second turn played
@@ -393,13 +418,14 @@ def test_ws_barge_clear_send_failure_is_safe(monkeypatch, attach_spy) -> None:
         with client.websocket_connect(WS_URL) as ws:
             ws.send_json(_ws_start("MZ-bg", "CA-bg"))
             ws.send_json(_media(2))  # final -> turn + playback (media/mark ok)
-            ws.send_json(_media(3))  # partial -> clear attempted -> fails safely
-            ws.send_json({"event": "stop", "streamSid": "MZ-bg", "stop": {}})
-            msgs = _drain(ws)
+            _recv_until(ws, "mark")  # drain playback
+            ws.send_json(_media(3))  # partial -> clear attempted -> fails safely (no output)
+            _stop(ws, "MZ-bg")
+            rest = _drain(ws)
     finally:
         app.dependency_overrides.clear()
     # The clear never reached the client, but the WS did not crash and persisted.
-    assert [m for m in msgs if m["event"] == "clear"] == []
+    assert [m for m in rest if m["event"] == "clear"] == []
     pb = attach_spy[-1]["turns"][0]["playback"]
     assert pb["degraded"] is True and pb["interruption_error"] == "clear_send_error"
     assert pb["interrupted"] is True
@@ -412,11 +438,12 @@ def test_ws_mark_event_completes_playback(monkeypatch, attach_spy) -> None:
     try:
         with client.websocket_connect(WS_URL) as ws:
             ws.send_json(_ws_start("MZ-mk", "CA-mk"))
-            ws.send_json(_media(2))  # final -> turn + playback (mark MZ-mk:turn:0)
+            ws.send_json(_media(2))  # final -> turn + playback (server mark MZ-mk:turn:0)
+            _recv_until(ws, "mark")  # drain playback before sending the mark echoes
             ws.send_json({"event": "mark", "streamSid": "MZ-mk", "mark": {"name": "nope"}})  # unknown
             ws.send_json({"event": "mark", "streamSid": "MZ-mk", "mark": {"name": "MZ-mk:turn:0"}})
             ws.send_json({"event": "mark", "streamSid": "MZ-mk", "mark": {"name": "MZ-mk:turn:0"}})  # dup
-            ws.send_json({"event": "stop", "streamSid": "MZ-mk", "stop": {}})
+            _stop(ws, "MZ-mk")
             _drain(ws)
     finally:
         app.dependency_overrides.clear()

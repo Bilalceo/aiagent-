@@ -38,6 +38,7 @@ tts = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-timeout>=2.3",
     "aiosqlite>=0.20",
     "ruff>=0.7",
     "mypy>=1.13",
@@ -48,6 +49,11 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["app/tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+# Safety net: no single test may hang CI. A blocked WebSocket receive (e.g. a
+# TestClient behavior change) fails fast with a thread stack dump instead of
+# burning the whole job. The full suite runs in ~20s, so 120s/test is generous.
+timeout = 120
+timeout_method = "thread"
 
 [tool.ruff]
 line-length = 100
