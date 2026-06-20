@@ -31,6 +31,7 @@ from app.services.voice.streaming_stt import (
     StreamingSTTSessionService,
 )
 from app.services.voice.deepgram_stt import DeepgramStreamingSTTProvider
+from app.services.voice.deepgram_tts import DeepgramStreamingTTSProvider
 from app.services.voice.streaming_metrics import StreamingLatencyTracker
 from app.services.voice.streaming_tts import (
     BargeInController,
@@ -275,11 +276,30 @@ def build_streaming_turn_service(session: AsyncSession) -> StreamingTurnService:
 
 
 def get_streaming_tts_provider() -> StreamingTTSProvider:
-    """Streaming TTS provider from STREAMING_TTS_PROVIDER (default mock)."""
+    """Streaming TTS provider from STREAMING_TTS_PROVIDER (default mock). The
+    deepgram adapter is opt-in and fails fast without an API key."""
     if settings.streaming_tts_provider == "mock":
         return MockStreamingTTSProvider()
+    if settings.streaming_tts_provider == "deepgram":
+        if not settings.deepgram_api_key:
+            raise RuntimeError(
+                "STREAMING_TTS_PROVIDER=deepgram requires DEEPGRAM_API_KEY to be set"
+            )
+        return DeepgramStreamingTTSProvider(
+            api_key=settings.deepgram_api_key,
+            model=settings.deepgram_tts_model,
+            encoding=settings.deepgram_tts_encoding,
+            sample_rate=settings.deepgram_tts_sample_rate,
+            container=settings.deepgram_tts_container,
+            speed=settings.deepgram_tts_speed,
+            connect_timeout=settings.deepgram_tts_connect_timeout_seconds,
+            recv_timeout=settings.deepgram_tts_receive_timeout_seconds,
+            max_message_bytes=settings.deepgram_tts_max_message_bytes,
+            max_chars=settings.streaming_tts_max_text_chars,
+        )
     raise RuntimeError(
-        f"STREAMING_TTS_PROVIDER={settings.streaming_tts_provider} is not implemented (mock)"
+        f"STREAMING_TTS_PROVIDER={settings.streaming_tts_provider} is not implemented "
+        "(mock|deepgram)"
     )
 
 

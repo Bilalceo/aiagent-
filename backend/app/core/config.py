@@ -79,12 +79,25 @@ class Settings(BaseSettings):
     # synthesized (mock) and sent back as Twilio Media Streams `media` + `mark`
     # events over the SAME socket. No barge-in, no real provider yet.
     streaming_tts_enabled: bool = False  # default off -> AI turn persisted, no outbound media
-    streaming_tts_provider: str = "mock"  # mock (only)
+    streaming_tts_provider: str = "mock"  # mock | deepgram (deepgram opt-in, real)
     streaming_tts_chunk_bytes: int = 400  # outbound audio bytes per media frame (pre-base64)
     streaming_tts_max_text_chars: int = 2000  # cap reply chars synthesized per turn
     streaming_tts_max_chunks_per_turn: int = 200  # cap media frames per turn (bounds output)
     streaming_tts_voice_uz: str = "uz-UZ-MadinaNeural"
     streaming_tts_voice_ru: str = "ru-RU-SvetlanaNeural"
+
+    # Real streaming TTS (Deepgram) - only used when STREAMING_TTS_PROVIDER=deepgram.
+    # Reuses DEEPGRAM_API_KEY. Tests NEVER call Deepgram (a fake connection is
+    # injected). The key is never logged or persisted. encoding/sample_rate/container
+    # default to RAW 8k mu-law so Twilio Media Streams can play frames directly.
+    deepgram_tts_model: str = "aura-asteria-en"  # Deepgram TTS voice/model id
+    deepgram_tts_encoding: str = "mulaw"  # Twilio media is 8k mu-law
+    deepgram_tts_sample_rate: int = 8000
+    deepgram_tts_container: str = "none"  # RAW frames, no WAV/RIFF header
+    deepgram_tts_speed: str = ""  # optional (e.g. "1.1"); empty -> provider default
+    deepgram_tts_connect_timeout_seconds: float = 5.0
+    deepgram_tts_receive_timeout_seconds: float = 5.0  # wait for synthesized audio
+    deepgram_tts_max_message_bytes: int = 1_000_000  # cap a single inbound message
 
     # Barge-in (mock-first): when the caller speaks (a streaming partial/final
     # transcript) while playback is active, send a Twilio `clear` to interrupt the

@@ -104,16 +104,18 @@ reason_code, transferred, sources, ...) is persisted under `streaming_stt.turns`
 Partials never call the AI. See docs/streaming-stt.md for the turn structure,
 limits, and safety guarantees.
 
-## Streaming TTS playback (mock-first) - now available behind flags
+## Streaming TTS playback - now available behind flags
 A FINAL transcript's AI reply can now be streamed BACK to Twilio. With the STT +
 AI-turn flags on AND `STREAMING_TTS_ENABLED=true`, the turn's `ai_text` is
-synthesized (mock) and sent over the SAME socket as `media` frames (base64 audio)
+synthesized and sent over the SAME socket as `media` frames (base64 audio)
 followed by a `mark` event. Emergency / operator-transfer turns voice the official
 SAFE reply (103 / operator message). A safe playback summary (provider, chunks,
 bytes, mark name, degraded) is stored under each turn's `playback` block - never
-raw audio or base64. It is mock-only (the bytes are not real playable audio), and
-Default is OFF (AI turn persisted, no outbound media). See
-docs/streaming-tts-playback.md.
+raw audio or base64. The default provider is a deterministic MOCK; a REAL Deepgram
+TTS provider is opt-in (`STREAMING_TTS_PROVIDER=deepgram`) emitting raw mu-law/8k
+frames Twilio can play, with this same media/mark path doing the base64 +
+chunking (docs/deepgram-streaming-tts.md). Default is OFF (AI turn persisted, no
+outbound media). See docs/streaming-tts-playback.md.
 
 ## Barge-in (mock-first) - now available behind flags
 With `BARGE_IN_ENABLED=true`, caller speech (a streaming partial/final transcript)
@@ -138,10 +140,12 @@ provider latency once integrated. See docs/streaming-latency-metrics.md.
    silence signal instead of the mock's frame-count heuristic (the final ->
    AI-turn wiring already exists).
 3. Real streaming TTS provider behind `StreamingTTSProvider`, emitting mu-law/8k
-   frames Twilio can actually play (the media/mark playback path already exists).
+   frames Twilio can actually play - DONE (A30, Deepgram opt-in;
+   docs/deepgram-streaming-tts.md). The media/mark playback path is reused.
 4. Real VAD / endpointing as the barge-in signal (barge-in itself is wired in
    A27 - docs/barge-in.md - using transcript events as the speech signal).
-5. Latency + audio-quality metrics and a live voice eval on top of the text evals.
+5. Audio-quality metrics and a live voice eval on top of the text evals (real STT
+   + TTS providers are now wired; latency metrics already exist - A28).
 6. Optionally persist a placeholder inbound `AudioRecording`
    (kind=user_audio, content_type=audio/x-mulaw) once buffering is designed
    safely (NOT done in this spike).

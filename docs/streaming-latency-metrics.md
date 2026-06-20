@@ -84,6 +84,11 @@ The same hooks fire for any `StreamingSTTProvider`. With the Deepgram adapter
 `first_partial_transcript_at` / `first_final_transcript_at` are marked from real
 interim/final Deepgram events, so the durations measure REAL recognition latency.
 
+With the Deepgram TTS adapter (`STREAMING_TTS_PROVIDER=deepgram`,
+docs/deepgram-streaming-tts.md), `tts_playback_started_at` is marked BEFORE
+synthesis, so each turn's `playback_started_at_ms..playback_completed_at_ms` now
+wraps REAL synthesis + receive latency (the hooks are unchanged).
+
 ## Next step
-Real streaming TTS provider integration - the same playback/duration hooks then
-measure REAL synthesis latency too.
+Audio-quality metrics and a live voice eval - the real STT and TTS providers are
+now wired, so these durations measure the real-time pipeline end to end.

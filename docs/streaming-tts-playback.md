@@ -5,9 +5,11 @@ WebSocket. When a streaming FINAL transcript produces an AI text turn (see
 docs/streaming-stt.md), the reply is synthesized (MOCK by default) and streamed
 back to Twilio over the SAME socket as `media` + `mark` events.
 
-It is ARCHITECTURE + a deterministic MOCK only:
-- no real speech synthesis (the mock emits `b"MOCK-TTS:" + text`),
-- no real/paid streaming TTS provider,
+The default is a deterministic MOCK; a REAL Deepgram TTS provider is now opt-in
+(`STREAMING_TTS_PROVIDER=deepgram`, see docs/deepgram-streaming-tts.md):
+- mock: no real speech synthesis (emits `b"MOCK-TTS:" + text`),
+- deepgram: real mu-law/8k audio over a TTS WebSocket (provider returns RAW bytes;
+  this playback layer still owns chunking + base64 + the media/mark events),
 - no real hangup control (emergency/transfer playback is documented below).
 
 Barge-in IS now wired (mock-first): when the caller speaks during playback, the
@@ -76,7 +78,9 @@ fields are driven by barge-in + mark handling (docs/barge-in.md).
 
 ## Env flags
 - `STREAMING_TTS_ENABLED` (default false) - enable outbound playback.
-- `STREAMING_TTS_PROVIDER=mock` - only `mock` implemented.
+- `STREAMING_TTS_PROVIDER=mock|deepgram` - `mock` (default) or the real Deepgram
+  TTS adapter (docs/deepgram-streaming-tts.md; opt-in, fails fast without
+  `DEEPGRAM_API_KEY`).
 - `STREAMING_TTS_CHUNK_BYTES` (default 400) - audio bytes per media frame (pre-base64).
 - `STREAMING_TTS_MAX_TEXT_CHARS` (default 2000) - cap reply chars synthesized per turn.
 - `STREAMING_TTS_MAX_CHUNKS_PER_TURN` (default 200) - cap media frames per turn.
@@ -89,16 +93,17 @@ safe degraded handling, WebSocket wiring (final turn -> media + mark), per-turn
 playback summary in stream metadata, full test coverage.
 
 Also implemented (A27): barge-in (`clear` on caller speech) + incoming `mark`
-handling - see docs/barge-in.md.
+handling - see docs/barge-in.md. (A28): playback-latency metrics -
+docs/streaming-latency-metrics.md. (A30): a REAL Deepgram TTS provider emitting
+mu-law/8k frames Twilio can play - docs/deepgram-streaming-tts.md.
 
-NOT implemented: real streaming TTS provider, real mu-law/8k audio encoding (the
-mock bytes are not playable audio), real VAD / endpointing, hangup after
-emergency, playback-latency metrics.
+NOT implemented: real VAD / endpointing, hangup after emergency, provider-side
+barge-in, persistent (multi-turn) TTS connections, audio-quality tuning.
 
 ## Next steps toward a real-time voice pilot
-1. Real streaming TTS provider behind `StreamingTTSProvider`, emitting mu-law/8k
-   frames Twilio can actually play; reuse the same chunk/media/mark path.
-2. Real VAD / provider endpointing as the barge-in signal (barge-in itself is
+1. Real VAD / provider endpointing as the barge-in signal (barge-in itself is
    wired in A27 - docs/barge-in.md).
-3. Hangup/handoff strategy after an emergency or operator-transfer message.
-4. Latency + audio-quality metrics and a live voice eval on top of the text evals.
+2. Hangup/handoff strategy after an emergency or operator-transfer message.
+3. Audio-quality metrics and a live voice eval on top of the text evals
+   (the real Deepgram STT + TTS providers are now wired; see the pilot checklist
+   in docs/deepgram-streaming-tts.md).
