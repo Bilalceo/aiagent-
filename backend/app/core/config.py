@@ -48,11 +48,26 @@ class Settings(BaseSettings):
     twilio_stream_max_frames_per_call: int = 50_000  # cap frames processed per stream
 
     # Streaming STT (mock-first; runs on the media stream when enabled). No AI/TTS.
-    streaming_stt_provider: str = "mock"  # mock (only)
+    streaming_stt_provider: str = "mock"  # mock | deepgram (deepgram opt-in, real)
     streaming_stt_enabled: bool = False  # only meaningful with TWILIO_USE_MEDIA_STREAMS
     streaming_stt_max_frames: int = 10_000  # per-stream frame cap (then close safely)
     streaming_stt_max_bytes: int = 8_000_000  # per-stream byte cap
     streaming_stt_final_after_frames: int = 25  # mock: emit final after N frames
+
+    # Real streaming STT (Deepgram) - only used when STREAMING_STT_PROVIDER=deepgram.
+    # Tests NEVER call Deepgram (a fake connection is injected). The API key is never
+    # logged or persisted. Encoding/sample-rate default to Twilio Media Streams audio.
+    deepgram_api_key: str = ""  # required when provider=deepgram (fail fast if empty)
+    deepgram_model: str = "nova-2"
+    deepgram_language: str = ""  # optional (e.g. "ru", "multi"); empty -> provider default
+    deepgram_encoding: str = "mulaw"  # Twilio media is 8k mu-law
+    deepgram_sample_rate: int = 8000
+    deepgram_interim_results: bool = True  # drive barge-in from interim transcripts
+    deepgram_endpointing: str = ""  # optional ("false" or ms, e.g. "300"); empty -> default
+    deepgram_connect_timeout_seconds: float = 5.0
+    deepgram_receive_timeout_seconds: float = 0.05  # per-drain recv timeout (non-blocking)
+    deepgram_max_message_bytes: int = 1_000_000  # cap a single inbound message
+    deepgram_max_transcript_chars: int = 2000  # cap a parsed transcript
 
     # Streaming AI turns: route a FINAL streaming transcript through the existing
     # AI/safety pipeline (text-only; NO streaming TTS / no audio sent back yet).

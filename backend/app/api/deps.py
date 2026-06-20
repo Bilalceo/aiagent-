@@ -30,6 +30,7 @@ from app.services.voice.streaming_stt import (
     StreamingSTTProvider,
     StreamingSTTSessionService,
 )
+from app.services.voice.deepgram_stt import DeepgramStreamingSTTProvider
 from app.services.voice.streaming_metrics import StreamingLatencyTracker
 from app.services.voice.streaming_tts import (
     BargeInController,
@@ -226,13 +227,33 @@ def build_telephony_stream_service(session: AsyncSession) -> TelephonyStreamServ
 
 
 def get_streaming_stt_provider() -> StreamingSTTProvider:
-    """Streaming STT provider from STREAMING_STT_PROVIDER (default mock)."""
+    """Streaming STT provider from STREAMING_STT_PROVIDER (default mock). The
+    deepgram adapter is opt-in and fails fast without an API key."""
     if settings.streaming_stt_provider == "mock":
         return MockStreamingSTTProvider(
             final_after_frames=settings.streaming_stt_final_after_frames
         )
+    if settings.streaming_stt_provider == "deepgram":
+        if not settings.deepgram_api_key:
+            raise RuntimeError(
+                "STREAMING_STT_PROVIDER=deepgram requires DEEPGRAM_API_KEY to be set"
+            )
+        return DeepgramStreamingSTTProvider(
+            api_key=settings.deepgram_api_key,
+            model=settings.deepgram_model,
+            language=settings.deepgram_language,
+            encoding=settings.deepgram_encoding,
+            sample_rate=settings.deepgram_sample_rate,
+            interim_results=settings.deepgram_interim_results,
+            endpointing=settings.deepgram_endpointing,
+            connect_timeout=settings.deepgram_connect_timeout_seconds,
+            recv_timeout=settings.deepgram_receive_timeout_seconds,
+            max_message_bytes=settings.deepgram_max_message_bytes,
+            max_chars=settings.deepgram_max_transcript_chars,
+        )
     raise RuntimeError(
-        f"STREAMING_STT_PROVIDER={settings.streaming_stt_provider} is not implemented (mock)"
+        f"STREAMING_STT_PROVIDER={settings.streaming_stt_provider} is not implemented "
+        "(mock|deepgram)"
     )
 
 

@@ -78,7 +78,12 @@ NOT implemented: real STT/TTS provider timings (the mock has near-zero synth tim
 network/RTT to Twilio, audio-quality metrics, percentile aggregation across calls,
 a metrics dashboard.
 
+## Works with real providers
+The same hooks fire for any `StreamingSTTProvider`. With the Deepgram adapter
+(`STREAMING_STT_PROVIDER=deepgram`, docs/deepgram-streaming-stt.md),
+`first_partial_transcript_at` / `first_final_transcript_at` are marked from real
+interim/final Deepgram events, so the durations measure REAL recognition latency.
+
 ## Next step
-Real streaming STT/TTS provider integration - the same event/duration hooks then
-measure REAL recognition and synthesis latency, which is the point of this
-instrumentation.
+Real streaming TTS provider integration - the same playback/duration hooks then
+measure REAL synthesis latency too.

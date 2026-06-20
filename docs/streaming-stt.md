@@ -1,9 +1,11 @@
 # Streaming STT (mock-first architecture)
 
 This adds a STREAMING speech-to-text architecture on top of the Twilio Media
-Streams WebSocket spike. It is ARCHITECTURE + a deterministic MOCK provider only:
-- no real speech recognition (the mock does not decode audio),
-- no real/paid streaming STT provider (Azure/Deepgram/OpenAI realtime) yet,
+Streams WebSocket spike. The default is a deterministic MOCK provider; a REAL
+provider (Deepgram) is now available opt-in (see below):
+- the mock does not decode audio (deterministic tests, no external calls),
+- a real streaming STT provider (Deepgram) is implemented behind this same
+  interface - `STREAMING_STT_PROVIDER=deepgram`, docs/deepgram-streaming-stt.md,
 - no streaming TTS back to the caller and no audio is sent back, no barge-in.
 
 A FINAL transcript IS now routed once through the full AI/safety pipeline and the
@@ -124,7 +126,8 @@ the earlier counting-only spike):
 ## Env flags
 - `TWILIO_USE_MEDIA_STREAMS` - when true, `/twilio/voice` returns `<Connect><Stream>`.
 - `STREAMING_STT_ENABLED` - default false; enable streaming STT on the media stream.
-- `STREAMING_STT_PROVIDER=mock` - only `mock` implemented.
+- `STREAMING_STT_PROVIDER=mock` (default) `| deepgram` (real, opt-in -
+  docs/deepgram-streaming-stt.md; `DEEPGRAM_*` config; fails fast without a key).
 - `STREAMING_STT_MAX_FRAMES` (default 10000) - per-stream frame cap; over it the
   socket finalizes + closes safely.
 - `STREAMING_STT_MAX_BYTES` (default 8000000) - per-stream byte cap.
@@ -164,8 +167,9 @@ to Twilio, barge-in, real end-of-utterance endpointing (the mock decides finals)
 latency metrics.
 
 ## Next steps toward a real-time voice pilot
-1. Real streaming STT provider (Azure/Deepgram/OpenAI realtime) behind
-   `StreamingSTTProvider`, feeding actual mu-law frames.
+1. Real streaming STT provider: Deepgram is implemented
+   (docs/deepgram-streaming-stt.md); Azure / OpenAI realtime can follow behind the
+   same `StreamingSTTProvider` interface.
 2. Real turn endpointing: detect end-of-utterance from the provider (silence /
    provider final) to decide turns, instead of the mock's frame-count heuristic.
 3. Streaming TTS / playback: synthesize the `ai_text` from each turn and send

@@ -91,6 +91,11 @@ fed to a (mock) `StreamingSTTSessionService` and a safe transcript summary is
 attached to `TelephonyStream.stream_metadata.streaming_stt` on stop/disconnect.
 The STT itself is mock-only (no real recognition).
 
+A REAL streaming STT provider (Deepgram) is available opt-in behind the same
+interface: `STREAMING_STT_PROVIDER=deepgram` (default `mock`). Interim Deepgram
+results drive barge-in; finals drive the AI turn; tests use a fake connection (no
+network). See docs/deepgram-streaming-stt.md.
+
 A FINAL transcript now creates an AI TEXT turn: when
 `STREAMING_STT_AI_TURNS_ENABLED=true` and a CallSession is linked to the stream,
 the final transcript is routed once through the full AI/safety pipeline
