@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import (
     build_barge_in_controller,
     build_latency_tracker,
+    build_live_call_gate,
     build_streaming_playback_service,
     build_streaming_stt_session_service,
     build_streaming_turn_service,
@@ -33,6 +34,7 @@ from app.services.telephony.provider import (
 )
 from app.services.telephony.stream import TelephonyStreamError, decode_media_payload
 from app.services.telephony.twilio import TwilioTelephonyProvider
+from app.services.voice.live_call import redact_streaming_summary
 from app.services.voice.streaming_stt import StreamingAudioFrame
 from app.services.voice.streaming_turn import StreamingTurnManager
 
@@ -222,6 +224,7 @@ async def twilio_media_stream(
     playback = None  # TwilioPlaybackService, only when streaming_tts_enabled + turns active
     barge = build_barge_in_controller()  # tracks active playback + handles clear/mark
     metrics = build_latency_tracker()  # numeric latency instrumentation (no audio)
+    gate = build_live_call_gate()  # smoke-mode pilot gate (OFF by default -> no-op)
     metrics.mark("websocket_connected_at")
     if metrics.enabled:
         # Stamp clear/mark times on the playback summary ONLY when metrics are on,
@@ -301,6 +304,13 @@ async def twilio_media_stream(
         summary = stt.summary(stopped_reason=reason)
         if turns is not None:
             summary.update(turns.summary())
+        # Optional smoke-mode safety: redact caller transcript TEXT in THIS streaming
+        # metadata summary before storing (counts/languages/metrics kept). Default
+        # off -> summary unchanged. NOTE: this only redacts the stream_metadata
+        # summary; the CallSession `transcripts` rows (role="user") are NOT redacted
+        # by this flag, so smoke tests must use NO real patient data.
+        if gate.redact_transcripts:
+            redact_streaming_summary(summary)
         await svc.attach_streaming_summary(stream, summary)
         # Metrics are best-effort: a metrics-persist failure must not crash the WS
         # or lose the streaming summary already attached above.
@@ -343,6 +353,21 @@ async def twilio_media_stream(
                 if not _authorize_stream(event):
                     await websocket.close(code=_WS_POLICY)
                     return
+                # Live-call smoke gate (A31): when smoke mode is ON, require a valid
+                # smoke token + (optional) caller allowlist BEFORE creating any row.
+                # The token/number are never logged - only a safe reason code. The
+                # token is read ONLY from Twilio customParameters; URL query params
+                # are intentionally NOT accepted (they leak into proxy/access logs).
+                if gate.enabled:
+                    start_obj0 = event.get("start") or {}
+                    cparams = start_obj0.get("customParameters")
+                    decision = gate.authorize_start(
+                        params=cparams if isinstance(cparams, dict) else {},
+                    )
+                    if not decision.allowed:
+                        log.info("live_call_smoke_rejected", reason=decision.reason)
+                        await websocket.close(code=_WS_POLICY)
+                        return
                 try:
                     stream = await svc.start_stream(event)
                 except TelephonyStreamError:
@@ -350,6 +375,7 @@ async def twilio_media_stream(
                     return
                 stream_sid = stream.stream_sid
                 metrics.mark("stream_started_at")
+                gate.start_clock()  # arm the smoke-mode max-duration guard
                 if streaming_on:
                     start_obj = event.get("start") or {}
                     params = start_obj.get("customParameters")
@@ -411,6 +437,15 @@ async def twilio_media_stream(
                             # A turn may have rolled the session back (expiring the
                             # stream); re-bind so later frames/finalize stay valid.
                             stream = await svc.ensure_live(stream)
+                        # Smoke-mode hard caps (A31): stop safely past max turns or
+                        # max duration. No-op when smoke mode is OFF.
+                        live_reason = gate.over_limit(turns=len(turns.turns) if turns else 0)
+                        if live_reason is not None:
+                            await _finalize(live_reason)
+                            await svc.stop_stream(stream)
+                            stopped = True
+                            await websocket.close(code=1000)
+                            return
                         if stt.over_limit:
                             await _finalize("over_limit")
                             await svc.stop_stream(stream)

@@ -32,6 +32,8 @@ from app.services.voice.streaming_stt import (
 )
 from app.services.voice.deepgram_stt import DeepgramStreamingSTTProvider
 from app.services.voice.deepgram_tts import DeepgramStreamingTTSProvider
+from app.services.voice.live_call import LiveCallGate
+from app.services.voice.readiness import VoiceProviderReadinessService
 from app.services.voice.streaming_metrics import StreamingLatencyTracker
 from app.services.voice.streaming_tts import (
     BargeInController,
@@ -331,3 +333,21 @@ def build_latency_tracker() -> StreamingLatencyTracker:
         enabled=settings.streaming_metrics_enabled,
         include_timestamps=settings.streaming_metrics_include_timestamps,
     )
+
+
+def build_live_call_gate() -> LiveCallGate:
+    """Live-call smoke-mode gate (A31). OFF by default -> no gating/redaction."""
+    return LiveCallGate(
+        smoke_mode=settings.live_call_smoke_mode,
+        require_token=settings.live_call_require_smoke_token,
+        smoke_token=settings.live_call_smoke_token,
+        allowed_numbers=settings.live_call_allowed_caller_numbers_list,
+        max_duration_seconds=settings.live_call_max_duration_seconds,
+        max_turns=settings.live_call_max_turns,
+        redact_transcripts=settings.live_call_redact_transcripts,
+    )
+
+
+def build_voice_readiness_service() -> VoiceProviderReadinessService:
+    """Config-only voice-provider readiness validator (A31; no network)."""
+    return VoiceProviderReadinessService(settings)

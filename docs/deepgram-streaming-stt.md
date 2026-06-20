@@ -85,6 +85,12 @@ Deepgram `speech_final`/utterance-end tuning (each `is_final` is treated as a tu
 segment), reconnect/backpressure, language auto-detect from Deepgram metadata
 (language is detected from the transcript text, as with the mock).
 
+## Readiness + live smoke test
+Before a controlled real call, validate config with
+`GET /api/v1/admin/voice-provider-readiness` (A31, config only - it flags a missing
+key, non-Twilio-compatible encoding/sample_rate, etc., and never reveals the key).
+Run the gated pilot per docs/live-voice-smoke-test.md.
+
 ## Next step
-Real streaming TTS provider integration, so the AI reply is synthesized by a real
-provider and streamed back (the playback path + latency hooks already exist).
+Real streaming TTS provider integration is DONE (docs/deepgram-streaming-tts.md);
+the live smoke test (docs/live-voice-smoke-test.md) exercises STT + TTS end to end.

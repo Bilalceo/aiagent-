@@ -132,6 +132,20 @@ numbers only (no audio/payloads), and is visible via the admin stream-detail
 endpoint. It measures the mock pipeline today; the same hooks measure REAL
 provider latency once integrated. See docs/streaming-latency-metrics.md.
 
+## Live-call smoke mode (controlled pilot gate) - now available behind flags
+For a controlled REAL call test (real Twilio + Deepgram STT + Deepgram TTS) before
+clinic usage, `LIVE_CALL_SMOKE_MODE=true` (default OFF) gates this WebSocket at the
+`start` event: optional smoke token (Twilio customParameters ONLY - query-string
+tokens are intentionally unsupported to avoid proxy/access-log leakage) +
+optional caller allowlist, plus hard caps `LIVE_CALL_MAX_TURNS` /
+`LIVE_CALL_MAX_DURATION_SECONDS` (clean stop with `stopped_reason`
+`live_call_max_turns` / `live_call_max_duration`). The token/number are never
+logged (only a safe reason code) and `LIVE_CALL_REDACT_TRANSCRIPTS` can redact
+caller transcript text. Validate config first with
+`GET /api/v1/admin/voice-provider-readiness` (config only, no key/token leak). Full
+runbook + scenarios: docs/live-voice-smoke-test.md (report template:
+docs/live-voice-smoke-report-template.md).
+
 ## Next steps toward real-time voice
 1. Real streaming STT provider (Azure/Deepgram/OpenAI realtime) behind
    `StreamingSTTProvider`: feed mu-law frames to a streaming recognizer; emit

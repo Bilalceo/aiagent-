@@ -130,7 +130,16 @@ NOT implemented: persistent/multiplexed TTS connections (one per turn), real
 audio-quality tuning, provider-side barge-in/clear, OpenAI Realtime / Azure TTS,
 hangup/handoff after an emergency or operator-transfer message.
 
+## Readiness validation (A31)
+`GET /api/v1/admin/voice-provider-readiness` (managers; config only, no network)
+confirms `tts_twilio_compatible` (mu-law/8000/container=none), key presence, and
+the smoke-mode gate config before a real call - without revealing the key or token.
+
 ## Next step: live voice pilot checklist / provider smoke test
+For the full gated runbook (10 scenarios, latency fields, audio-quality template,
+pass/fail + rollback) see docs/live-voice-smoke-test.md and the report template
+docs/live-voice-smoke-report-template.md (A31).
+
 Before a real call:
 1. Set `STREAMING_STT_PROVIDER=deepgram` + `STREAMING_TTS_PROVIDER=deepgram`,
    `DEEPGRAM_API_KEY`, and install the extra: `pip install -e ".[stt-streaming]"`.

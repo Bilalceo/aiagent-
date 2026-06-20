@@ -66,6 +66,15 @@ curl -s -X POST localhost:8000/api/v1/voice/simulate \
   -H 'Content-Type: application/json' -d '{"text_override":"Klinika manzili qayerda?"}'
 ```
 
+## Streaming voice (opt-in, mock-first → real Deepgram)
+Twilio Media Streams + streaming STT/TTS/barge-in/latency are layered behind flags,
+all OFF by default. Real Deepgram STT/TTS are opt-in. Before any controlled real
+call, check `GET /api/v1/admin/voice-provider-readiness` and follow the gated pilot
+runbook in `docs/live-voice-smoke-test.md`. Docs: `docs/twilio-media-streams.md`,
+`docs/streaming-stt.md`, `docs/streaming-tts-playback.md`,
+`docs/deepgram-streaming-stt.md`, `docs/deepgram-streaming-tts.md`,
+`docs/barge-in.md`, `docs/streaming-latency-metrics.md`.
+
 ## Layout
 - `backend/` — FastAPI app, services, workers, Alembic migrations, tests
 - `frontend/` — Next.js admin dashboard + simulation chat

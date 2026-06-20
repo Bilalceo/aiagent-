@@ -10,7 +10,11 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import build_audio_recording_service, get_audio_storage
+from app.api.deps import (
+    build_audio_recording_service,
+    build_voice_readiness_service,
+    get_audio_storage,
+)
 from app.core.db import get_session
 from app.models.admin_user import AdminUser
 from app.models.audio_recording import AudioRecording
@@ -239,6 +243,15 @@ async def list_telephony_streams(
     return await TelephonyStreamService(session).list(
         call_sid=call_sid, status=status, limit=limit, offset=offset
     )
+
+
+@router.get("/voice-provider-readiness")
+async def voice_provider_readiness(
+    _user: AdminUser = Depends(_MANAGERS),
+):
+    """Config-only readiness for the real live-voice pipeline (A31). No network
+    calls; never reveals the Deepgram key or the smoke token."""
+    return build_voice_readiness_service().check()
 
 
 @router.get("/telephony-streams/{stream_id}", response_model=TelephonyStreamDetailOut)

@@ -112,6 +112,24 @@ class Settings(BaseSettings):
     streaming_metrics_enabled: bool = True  # safe numeric metrics, on by default
     streaming_metrics_include_timestamps: bool = False  # add wall-clock ISO times (default off)
 
+    # Live-call smoke mode (A31): a controlled real-call PILOT gate before clinic
+    # usage. Default OFF -> nothing changes (no gating, no redaction). When ON it
+    # gates the Twilio media-stream WebSocket (optional smoke token + caller
+    # allowlist) and enforces max duration/turns. The smoke token is a shared secret
+    # from env and is NEVER logged, persisted, or returned by the readiness endpoint.
+    live_call_smoke_mode: bool = False  # gate the media stream as a controlled pilot
+    live_call_max_duration_seconds: int = 180  # hard cap per smoke call (cost/safety)
+    live_call_max_turns: int = 10  # hard cap on AI turns per smoke call
+    live_call_allowed_caller_numbers: str = ""  # optional comma-separated allowlist
+    live_call_require_smoke_token: bool = True  # require a valid smoke token in smoke mode
+    live_call_smoke_token: str = ""  # shared secret (env); never logged/persisted
+    live_call_redact_transcripts: bool = False  # redact caller transcript text in metadata
+    live_call_no_patient_data_notice: bool = True  # surface a "no patient data" reminder
+
+    @property
+    def live_call_allowed_caller_numbers_list(self) -> list[str]:
+        return [s.strip() for s in self.live_call_allowed_caller_numbers.split(",") if s.strip()]
+
     # Azure Speech
     azure_speech_key: str = ""
     azure_speech_region: str = "westeurope"
