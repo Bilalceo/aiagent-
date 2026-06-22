@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     public_base_url: str = "http://localhost:8000"
     api_key: str = "change-me-admin-api-key"
+    cors_allow_origins: str = "*"  # comma-separated origins for the browser frontend
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@postgres:5432/callcenter"
