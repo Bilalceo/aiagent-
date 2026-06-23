@@ -1,24 +1,21 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import Link from "next/link";
+import { LanguageProvider } from "@/lib/i18n";
+import SiteHeader from "@/components/SiteHeader";
 
 export const metadata: Metadata = {
-  title: "AI Call-Center — Admin",
-  description: "Clinic AI voice receptionist admin dashboard",
+  title: "Urologiya klinikasi — AI registrator",
+  description: "Urologiya klinikasi AI ovozli registrator boshqaruv paneli",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="uz">
-      <body>
-        <header className="border-b bg-white">
-          <nav className="mx-auto flex max-w-5xl gap-6 px-4 py-3 text-sm font-medium">
-            <Link href="/">Dashboard</Link>
-            <Link href="/simulation">Simulyatsiya</Link>
-            <Link href="/admin">Admin</Link>
-          </nav>
-        </header>
-        <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
+      <body className="bg-slate-50 text-slate-900">
+        <LanguageProvider>
+          <SiteHeader />
+          <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+        </LanguageProvider>
       </body>
     </html>
   );

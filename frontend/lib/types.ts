@@ -205,3 +205,60 @@ export interface ManagedUser {
   created_at: string | null;
   updated_at: string | null;
 }
+
+// Voice provider readiness (GET /admin/voice-provider-readiness) - SAFE config
+// only. *_present fields are booleans; the backend NEVER returns keys or tokens.
+export interface VoiceReadinessSummary {
+  twilio_media_streams_enabled: boolean;
+  streaming_stt_enabled: boolean;
+  streaming_tts_enabled: boolean;
+  ai_turns_enabled: boolean;
+  streaming_stt_provider: string;
+  streaming_tts_provider: string;
+  deepgram_api_key_present: boolean;
+  deepgram_stt: { model: string; encoding: string; sample_rate: number };
+  deepgram_tts: { model: string; encoding: string; sample_rate: number; container: string };
+  stt_twilio_compatible: boolean;
+  tts_twilio_compatible: boolean;
+  barge_in_enabled: boolean;
+  metrics_enabled: boolean;
+  max_call_duration_seconds: number;
+  max_turns: number;
+  smoke_mode_enabled: boolean;
+  smoke_token_present: boolean;
+  require_smoke_token: boolean;
+  allowed_caller_numbers_count: number;
+  redact_transcripts: boolean;
+  no_patient_data_notice: boolean;
+}
+
+export interface VoiceReadiness {
+  ready: boolean;
+  warnings: string[];
+  errors: string[];
+  summary: VoiceReadinessSummary;
+}
+
+export interface TelephonyStream {
+  id: number;
+  provider: string;
+  provider_call_id: string | null;
+  stream_sid: string | null;
+  telephony_call_id: number | null;
+  status: string;
+  media_frames_count: number;
+  media_bytes_count: number;
+  last_sequence_number: number | null;
+  stream_metadata: Record<string, unknown> | null;
+  started_at: string | null;
+  stopped_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TelephonyStreamFilters {
+  call_sid?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}

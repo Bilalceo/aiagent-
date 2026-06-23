@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { sendMessage, startCall } from "@/lib/api";
+import { useLanguage } from "@/lib/i18n";
 import type { ChatTurn } from "@/lib/types";
 
 export function SimulationChat() {
+  const { t } = useLanguage();
   const [callId, setCallId] = useState<number | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [text, setText] = useState("");
@@ -23,17 +25,17 @@ export function SimulationChat() {
     if (!trimmed || busy) return;
     setBusy(true);
     setError(null);
-    setTurns((t) => [...t, { role: "user", text: trimmed }]);
+    setTurns((prev) => [...prev, { role: "user", text: trimmed }]);
     setText("");
     try {
       const id = await ensureCall();
       const res = await sendMessage(id, trimmed);
-      setTurns((t) => [
-        ...t,
+      setTurns((prev) => [
+        ...prev,
         { role: "assistant", text: res.reply, action: res.action, transferred: res.transferred },
       ]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Xatolik");
+      setError(e instanceof Error ? e.message : t("error"));
     } finally {
       setBusy(false);
     }
@@ -42,11 +44,7 @@ export function SimulationChat() {
   return (
     <div className="rounded-lg border bg-white">
       <div className="h-96 space-y-3 overflow-y-auto p-4">
-        {turns.length === 0 && (
-          <p className="text-sm text-gray-400">
-            Misol: "Ish vaqtingiz qanday?" yoki "Qaysi dori ichsam bo'ladi?"
-          </p>
-        )}
+        {turns.length === 0 && <p className="text-sm text-slate-400">{t("sim_hint")}</p>}
         {turns.map((turn, i) => (
           <div key={i} className={turn.role === "user" ? "text-right" : "text-left"}>
             <span
@@ -58,7 +56,7 @@ export function SimulationChat() {
               {turn.text}
               {turn.action && turn.action !== "allow" && (
                 <span className="ml-2 rounded bg-amber-200 px-1 text-xs text-amber-900">
-                  {turn.action === "emergency" ? "SHOSHILINCH" : "OPERATORGA"}
+                  {turn.action === "emergency" ? t("sim_badge_emergency") : t("sim_badge_operator")}
                 </span>
               )}
             </span>
@@ -72,14 +70,14 @@ export function SimulationChat() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && onSend()}
-          placeholder="Xabar yozing..."
+          placeholder={t("sim_input_placeholder")}
         />
         <button
           className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
           onClick={onSend}
           disabled={busy}
         >
-          Yuborish
+          {t("sim_send")}
         </button>
       </div>
     </div>

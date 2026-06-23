@@ -3,12 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getCalls } from "@/lib/admin";
+import { maskPhone } from "@/components/ui";
+import { useLanguage } from "@/lib/i18n";
 import type { AdminCall } from "@/lib/types";
 
 const STATUSES = ["", "in_progress", "completed", "transferred"];
 const LANGUAGES = ["", "uz-UZ", "ru-RU"];
 
 export default function CallsPage() {
+  const { t, tStatus } = useLanguage();
   const [calls, setCalls] = useState<AdminCall[]>([]);
   const [status, setStatus] = useState("");
   const [language, setLanguage] = useState("");
@@ -25,43 +28,43 @@ export default function CallsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Call sessions</h1>
+      <h1 className="text-xl font-semibold">{t("calls_title")}</h1>
 
       <div className="flex gap-3 text-sm">
         <label className="flex items-center gap-1">
-          Status
+          {t("th_status")}
           <select className="rounded border px-2 py-1" value={status} onChange={(e) => setStatus(e.target.value)}>
             {STATUSES.map((s) => (
-              <option key={s} value={s}>{s || "all"}</option>
+              <option key={s} value={s}>{s ? tStatus(s) : t("filter_all")}</option>
             ))}
           </select>
         </label>
         <label className="flex items-center gap-1">
-          Language
+          {t("th_language")}
           <select className="rounded border px-2 py-1" value={language} onChange={(e) => setLanguage(e.target.value)}>
             {LANGUAGES.map((l) => (
-              <option key={l} value={l}>{l || "all"}</option>
+              <option key={l} value={l}>{l || t("filter_all")}</option>
             ))}
           </select>
         </label>
       </div>
 
       {loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-slate-500">{t("loading")}</p>
       ) : error ? (
-        <p className="text-red-600">Error: {error}</p>
+        <p className="text-red-600">{t("error")}: {error}</p>
       ) : calls.length === 0 ? (
-        <p className="text-sm text-gray-400">No calls match these filters.</p>
+        <p className="text-sm text-slate-400">{t("empty_calls_filter")}</p>
       ) : (
         <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="border-b text-left text-gray-500">
-              <th className="py-2">ID</th>
-              <th>From</th>
-              <th>Language</th>
-              <th>Status</th>
-              <th>Duration</th>
-              <th>Started</th>
+            <tr className="border-b text-left text-slate-500">
+              <th className="py-2">{t("th_id")}</th>
+              <th>{t("th_from")}</th>
+              <th>{t("th_language")}</th>
+              <th>{t("th_status")}</th>
+              <th>{t("th_duration")}</th>
+              <th>{t("th_started")}</th>
             </tr>
           </thead>
           <tbody>
@@ -70,9 +73,9 @@ export default function CallsPage() {
                 <td className="py-2">
                   <Link href={`/admin/calls/${c.id}`} className="text-blue-600">{c.id}</Link>
                 </td>
-                <td>{c.from_number}</td>
+                <td className="font-mono">{maskPhone(c.from_number)}</td>
                 <td>{c.language ?? "-"}</td>
-                <td>{c.status}</td>
+                <td>{tStatus(c.status)}</td>
                 <td>{c.duration_seconds != null ? `${c.duration_seconds}s` : "-"}</td>
                 <td>{c.started_at?.replace("T", " ").slice(0, 19) ?? "-"}</td>
               </tr>

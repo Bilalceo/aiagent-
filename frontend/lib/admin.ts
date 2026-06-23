@@ -9,6 +9,9 @@ import type {
   AuditLogEntry,
   TelephonyCall,
   TelephonyCallFilters,
+  TelephonyStream,
+  TelephonyStreamFilters,
+  VoiceReadiness,
   CallbackTask,
   KnowledgeItem,
   KnowledgeItemInput,
@@ -84,6 +87,21 @@ export function getTelephonyCalls(filters: TelephonyCallFilters = {}): Promise<T
 
 export function getTelephonyCall(id: number | string): Promise<TelephonyCall> {
   return getJSON<TelephonyCall>(`/admin/telephony-calls/${id}`);
+}
+
+// Voice provider readiness (safe config only - no keys/tokens ever returned).
+export function getReadiness(): Promise<VoiceReadiness> {
+  return getJSON<VoiceReadiness>("/admin/voice-provider-readiness");
+}
+
+export function getTelephonyStreams(filters: TelephonyStreamFilters = {}): Promise<TelephonyStream[]> {
+  const q = new URLSearchParams();
+  if (filters.call_sid) q.set("call_sid", filters.call_sid);
+  if (filters.status) q.set("status", filters.status);
+  if (filters.limit != null) q.set("limit", String(filters.limit));
+  if (filters.offset != null) q.set("offset", String(filters.offset));
+  const qs = q.toString();
+  return getJSON<TelephonyStream[]>(`/admin/telephony-streams${qs ? `?${qs}` : ""}`);
 }
 
 export function getCallbacks(

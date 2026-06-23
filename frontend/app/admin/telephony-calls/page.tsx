@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getTelephonyCalls } from "@/lib/admin";
 import { getUser } from "@/lib/auth";
+import { maskPhone } from "@/components/ui";
+import { useLanguage } from "@/lib/i18n";
 import type { TelephonyCall } from "@/lib/types";
 
 const PROVIDERS = ["", "mock", "twilio"];
@@ -15,14 +17,8 @@ function fmtDate(v: string | null): string {
   return v ? v.replace("T", " ").slice(0, 19) : "-";
 }
 
-// Mask middle digits of a phone number for the list view.
-function maskNumber(v: string | null): string {
-  if (!v) return "-";
-  if (v.length <= 5) return v;
-  return `${v.slice(0, 4)}***${v.slice(-2)}`;
-}
-
 export default function TelephonyCallsPage() {
+  const { t, tStatus } = useLanguage();
   const role = getUser()?.role;
   const canView = role === "super_admin" || role === "admin";
 
@@ -49,7 +45,7 @@ export default function TelephonyCallsPage() {
       offset,
     })
       .then(setRows)
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load telephony calls"))
+      .catch((e) => setError(e instanceof Error ? e.message : t("error")))
       .finally(() => setLoading(false));
   }
 
@@ -59,44 +55,40 @@ export default function TelephonyCallsPage() {
   if (!canView) {
     return (
       <div className="space-y-2">
-        <h1 className="text-xl font-semibold">Telephony calls</h1>
-        <p className="text-sm text-red-600">
-          Forbidden: only super_admin and admin can view telephony calls.
-        </p>
+        <h1 className="text-xl font-semibold">{t("tel_title")}</h1>
+        <p className="text-sm text-red-600">{t("tel_forbidden")}</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Telephony calls</h1>
-      <p className="text-xs text-gray-400">
-        Intake metadata from the mock telephony webhook. Secrets are never exposed.
-      </p>
+      <h1 className="text-xl font-semibold">{t("tel_title")}</h1>
+      <p className="text-xs text-slate-400">{t("tel_sub")}</p>
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label className="flex items-center gap-1">
-          Provider
+          {t("th_provider")}
           <select className="rounded border px-2 py-1" value={provider} onChange={(e) => setProvider(e.target.value)}>
-            {PROVIDERS.map((p) => <option key={p} value={p}>{p || "all"}</option>)}
+            {PROVIDERS.map((p) => <option key={p} value={p}>{p || t("filter_all")}</option>)}
           </select>
         </label>
         <label className="flex items-center gap-1">
-          Status
+          {t("th_status")}
           <select className="rounded border px-2 py-1" value={status} onChange={(e) => setStatus(e.target.value)}>
-            {STATUSES.map((s) => <option key={s} value={s}>{s || "all"}</option>)}
+            {STATUSES.map((s) => <option key={s} value={s}>{s ? tStatus(s) : t("filter_all")}</option>)}
           </select>
         </label>
         <label className="flex items-center gap-1">
-          Direction
+          {t("th_direction")}
           <select className="rounded border px-2 py-1" value={direction} onChange={(e) => setDirection(e.target.value)}>
-            {DIRECTIONS.map((d) => <option key={d} value={d}>{d || "all"}</option>)}
+            {DIRECTIONS.map((d) => <option key={d} value={d}>{d ? tStatus(d) : t("filter_all")}</option>)}
           </select>
         </label>
         <input
-          className="w-32 rounded border px-2 py-1"
-          placeholder="Call session ID"
+          className="w-40 rounded border px-2 py-1"
+          placeholder={t("ph_call_session_id")}
           inputMode="numeric"
           value={callSessionId}
           onChange={(e) => setCallSessionId(e.target.value.replace(/[^0-9]/g, ""))}
@@ -104,23 +96,23 @@ export default function TelephonyCallsPage() {
       </div>
 
       {loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-slate-500">{t("loading")}</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-gray-400">No telephony calls match these filters.</p>
+        <p className="text-sm text-slate-400">{t("tel_empty")}</p>
       ) : (
         <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="border-b text-left text-gray-500">
-              <th className="py-2">ID</th>
-              <th>Provider</th>
-              <th>Provider call ID</th>
-              <th>Status</th>
-              <th>Direction</th>
-              <th>From</th>
-              <th>To</th>
-              <th>Call</th>
-              <th>Started</th>
-              <th>Created</th>
+            <tr className="border-b text-left text-slate-500">
+              <th className="py-2">{t("th_id")}</th>
+              <th>{t("th_provider")}</th>
+              <th>{t("th_provider_call_id")}</th>
+              <th>{t("th_status")}</th>
+              <th>{t("th_direction")}</th>
+              <th>{t("th_from")}</th>
+              <th>{t("th_to")}</th>
+              <th>{t("th_call")}</th>
+              <th>{t("th_started")}</th>
+              <th>{t("th_created")}</th>
             </tr>
           </thead>
           <tbody>
@@ -131,10 +123,10 @@ export default function TelephonyCallsPage() {
                 </td>
                 <td>{r.provider}</td>
                 <td>{r.provider_call_id ?? "-"}</td>
-                <td>{r.status}</td>
-                <td>{r.direction}</td>
-                <td>{maskNumber(r.from_number)}</td>
-                <td>{maskNumber(r.to_number)}</td>
+                <td>{tStatus(r.status)}</td>
+                <td>{tStatus(r.direction)}</td>
+                <td className="font-mono">{maskPhone(r.from_number)}</td>
+                <td className="font-mono">{maskPhone(r.to_number)}</td>
                 <td>
                   {r.call_session_id != null ? (
                     <Link href={`/admin/calls/${r.call_session_id}`} className="text-blue-600">#{r.call_session_id}</Link>
@@ -154,17 +146,17 @@ export default function TelephonyCallsPage() {
           disabled={offset === 0 || loading}
           onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
         >
-          Prev
+          {t("pg_prev")}
         </button>
-        <span className="text-gray-500">
-          rows {rows.length === 0 ? 0 : offset + 1}-{offset + rows.length}
+        <span className="text-slate-500">
+          {t("pg_rows")} {rows.length === 0 ? 0 : offset + 1}-{offset + rows.length}
         </span>
         <button
           className="rounded border px-2 py-1 disabled:opacity-40"
           disabled={rows.length < PAGE_SIZE || loading}
           onClick={() => setOffset(offset + PAGE_SIZE)}
         >
-          Next
+          {t("pg_next")}
         </button>
       </div>
     </div>

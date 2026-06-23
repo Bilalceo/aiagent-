@@ -11,6 +11,8 @@ import {
   updateCallbackNotes,
 } from "@/lib/admin";
 import { getUser } from "@/lib/auth";
+import { maskPhone } from "@/components/ui";
+import { useLanguage } from "@/lib/i18n";
 import type { CallbackTask } from "@/lib/types";
 
 const STATUSES = ["", "callback_required", "assigned", "completed", "cancelled"];
@@ -18,6 +20,7 @@ const PRIORITIES = ["", "urgent", "high", "normal"];
 const TERMINAL = ["completed", "cancelled"];
 
 export default function CallbacksPage() {
+  const { t, tStatus } = useLanguage();
   const role = getUser()?.role;
   const canManage = role === "super_admin" || role === "admin";
 
@@ -54,114 +57,114 @@ export default function CallbacksPage() {
       setMessage(ok);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Action failed");
+      setError(e instanceof Error ? e.message : t("action_failed"));
     }
   }
 
-  function isOverdue(t: CallbackTask): boolean {
-    return !!t.due_at && !TERMINAL.includes(t.status) && new Date(t.due_at).getTime() < Date.now();
+  function isOverdue(task: CallbackTask): boolean {
+    return !!task.due_at && !TERMINAL.includes(task.status) && new Date(task.due_at).getTime() < Date.now();
   }
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Callback tasks</h1>
+      <h1 className="text-xl font-semibold">{t("cb_title")}</h1>
       {message && <p className="text-sm text-green-700">{message}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="flex flex-wrap gap-3 text-sm">
         <label className="flex items-center gap-1">
-          Status
+          {t("th_status")}
           <select className="rounded border px-2 py-1" value={status} onChange={(e) => setStatus(e.target.value)}>
-            {STATUSES.map((s) => <option key={s} value={s}>{s || "all"}</option>)}
+            {STATUSES.map((s) => <option key={s} value={s}>{s ? tStatus(s) : t("filter_all")}</option>)}
           </select>
         </label>
         <label className="flex items-center gap-1">
-          Priority
+          {t("th_priority")}
           <select className="rounded border px-2 py-1" value={priority} onChange={(e) => setPriority(e.target.value)}>
-            {PRIORITIES.map((p) => <option key={p} value={p}>{p || "all"}</option>)}
+            {PRIORITIES.map((p) => <option key={p} value={p}>{p ? tStatus(p) : t("filter_all")}</option>)}
           </select>
         </label>
-        <input className="rounded border px-2 py-1" placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <input className="rounded border px-2 py-1" placeholder={t("ph_reason")} value={reason} onChange={(e) => setReason(e.target.value)} />
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={assignedToMe} onChange={(e) => setAssignedToMe(e.target.checked)} />
-          assigned to me
+          {t("chk_assigned_me")}
         </label>
       </div>
 
       {loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-slate-500">{t("loading")}</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-gray-400">No callback tasks.</p>
+        <p className="text-sm text-slate-400">{t("cb_empty")}</p>
       ) : (
         <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="border-b text-left text-gray-500">
-              <th className="py-2">ID</th>
-              <th>Call</th>
-              <th>Phone</th>
-              <th>Reason</th>
-              <th>Priority</th>
-              <th>Status</th>
-              <th>Due</th>
-              <th>Assigned</th>
-              <th>Actions</th>
+            <tr className="border-b text-left text-slate-500">
+              <th className="py-2">{t("th_id")}</th>
+              <th>{t("th_call")}</th>
+              <th>{t("th_phone")}</th>
+              <th>{t("th_reason")}</th>
+              <th>{t("th_priority")}</th>
+              <th>{t("th_status")}</th>
+              <th>{t("th_due")}</th>
+              <th>{t("th_assigned")}</th>
+              <th>{t("th_actions")}</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((t) => {
-              const terminal = TERMINAL.includes(t.status);
+            {rows.map((task) => {
+              const terminal = TERMINAL.includes(task.status);
               return (
-                <tr key={t.id} className="border-b align-top hover:bg-gray-50">
-                  <td className="py-2">{t.id}</td>
+                <tr key={task.id} className="border-b align-top hover:bg-gray-50">
+                  <td className="py-2">{task.id}</td>
                   <td>
-                    <Link href={`/admin/calls/${t.call_session_id}`} className="text-blue-600">#{t.call_session_id}</Link>
+                    <Link href={`/admin/calls/${task.call_session_id}`} className="text-blue-600">#{task.call_session_id}</Link>
                   </td>
-                  <td>{t.patient_phone ?? "-"}</td>
-                  <td>{t.reason}</td>
-                  <td>{t.priority}</td>
-                  <td>{t.status}</td>
-                  <td className={isOverdue(t) ? "font-medium text-red-600" : ""}>
-                    {t.due_at?.replace("T", " ").slice(0, 16) ?? "-"}
-                    {isOverdue(t) && " (overdue)"}
+                  <td className="font-mono">{maskPhone(task.patient_phone)}</td>
+                  <td>{tStatus(task.reason)}</td>
+                  <td>{tStatus(task.priority)}</td>
+                  <td>{tStatus(task.status)}</td>
+                  <td className={isOverdue(task) ? "font-medium text-red-600" : ""}>
+                    {task.due_at?.replace("T", " ").slice(0, 16) ?? "-"}
+                    {isOverdue(task) && ` (${t("overdue")})`}
                   </td>
-                  <td>{t.assigned_to_user_id ?? "-"}</td>
+                  <td>{task.assigned_to_user_id ?? "-"}</td>
                   <td className="space-x-1 whitespace-nowrap">
-                    {t.status === "callback_required" && (
-                      <button className="rounded border px-2 py-0.5" onClick={() => act(() => assignCallback(t.id), "Assigned to you.")}>Assign to me</button>
+                    {task.status === "callback_required" && (
+                      <button className="rounded border px-2 py-0.5" onClick={() => act(() => assignCallback(task.id), t("msg_assigned"))}>{t("act_assign_me")}</button>
                     )}
-                    {t.status === "assigned" && (
-                      <button className="rounded border px-2 py-0.5" onClick={() => act(() => completeCallback(t.id), "Completed.")}>Complete</button>
+                    {task.status === "assigned" && (
+                      <button className="rounded border px-2 py-0.5" onClick={() => act(() => completeCallback(task.id), t("msg_completed"))}>{t("act_complete")}</button>
                     )}
                     {!terminal && (
                       <button
                         className="rounded border px-2 py-0.5"
                         onClick={() => {
-                          const notes = window.prompt("Resolution notes:", t.resolution_notes ?? "");
-                          if (notes !== null) act(() => updateCallbackNotes(t.id, notes), "Notes saved.");
+                          const notes = window.prompt(t("prompt_notes"), task.resolution_notes ?? "");
+                          if (notes !== null) act(() => updateCallbackNotes(task.id, notes), t("msg_notes_saved"));
                         }}
                       >
-                        Notes
+                        {t("act_notes")}
                       </button>
                     )}
                     {canManage && !terminal && (
                       <button
                         className="rounded border px-2 py-0.5"
                         onClick={() => {
-                          const v = window.prompt("New due date/time (YYYY-MM-DDTHH:MM):", "");
-                          if (v) act(() => rescheduleCallback(t.id, new Date(v).toISOString()), "Rescheduled.");
+                          const v = window.prompt(t("prompt_due"), "");
+                          if (v) act(() => rescheduleCallback(task.id, new Date(v).toISOString()), t("msg_rescheduled"));
                         }}
                       >
-                        Reschedule
+                        {t("act_reschedule")}
                       </button>
                     )}
                     {canManage && !terminal && (
                       <button
                         className="rounded border border-red-300 px-2 py-0.5 text-red-700"
                         onClick={() => {
-                          if (window.confirm("Cancel this callback?")) act(() => cancelCallback(t.id), "Cancelled.");
+                          if (window.confirm(t("confirm_cancel"))) act(() => cancelCallback(task.id), t("msg_cancelled"));
                         }}
                       >
-                        Cancel
+                        {t("act_cancel")}
                       </button>
                     )}
                   </td>
