@@ -9,6 +9,7 @@ from app.api.v1 import (
     bookings,
     calls,
     health,
+    manager,
     simulation,
     telephony,
     users,
@@ -25,3 +26,4 @@ api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(users.router, prefix="/admin/users", tags=["admin-users"])
 api_router.include_router(calls.router, prefix="/calls", tags=["calls"])
 api_router.include_router(bookings.router, prefix="/bookings", tags=["bookings"])
+api_router.include_router(manager.router, prefix="/manager", tags=["manager"])

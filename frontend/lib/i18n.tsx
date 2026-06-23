@@ -329,6 +329,71 @@ const DICT: Record<string, Entry> = {
   audio_no_url: { uz: "Ijro etiladigan audio URL mavjud emas.", ru: "Нет доступного URL для воспроизведения." },
   audio_soft_delete: { uz: "Yozuvni yashirish", ru: "Скрыть запись" },
 
+  // --- Manager dashboard (M1a) ---
+  mgr_brand_sub: { uz: "Menejer paneli", ru: "Панель менеджера" },
+  mgr_nav_home: { uz: "Bosh sahifa", ru: "Главная" },
+  mgr_nav_schedule: { uz: "Qabul jadvali", ru: "Расписание приема" },
+  mgr_nav_notifications: { uz: "Bildirishnomalar", ru: "Уведомления" },
+  mgr_nav_reports: { uz: "Hisobotlar", ru: "Отчеты" },
+  mgr_nav_doctors: { uz: "Shifokorlar", ru: "Врачи" },
+  mgr_access_denied: { uz: "Bu sahifaga ruxsatingiz yo'q.", ru: "У вас нет доступа к этой странице." },
+  mgr_safety: {
+    uz: "AI yordamchi diagnoz qo'ymaydi, dori tavsiya qilmaydi va davolash rejasi bermaydi. Shubhali yoki shoshilinch holatlar operator/shifokorga yo'naltiriladi.",
+    ru: "AI-ассистент не ставит диагноз, не рекомендует лекарства и не составляет план лечения. Сомнительные или срочные случаи направляются оператору/врачу.",
+  },
+
+  // manager home
+  mgr_home_title: { uz: "Menejer paneli", ru: "Панель менеджера" },
+  mgr_home_sub: { uz: "Klinika kunlik ko'rsatkichlari", ru: "Ежедневные показатели клиники" },
+  mgr_kpi_total_calls: { uz: "Jami qo'ng'iroqlar", ru: "Всего звонков" },
+  mgr_kpi_ai_resolved: { uz: "AI hal qildi", ru: "Решено AI" },
+  mgr_kpi_transfers: { uz: "Operatorga uzatildi", ru: "Передачи оператору" },
+  mgr_kpi_action: { uz: "Harakat talab qiladi", ru: "Требует действий" },
+  mgr_sec_action_items: { uz: "Harakat talab qiluvchi elementlar", ru: "Требующие действий" },
+  mgr_sec_recent_calls: { uz: "So'nggi qo'ng'iroqlar", ru: "Недавние звонки" },
+  mgr_empty_action: { uz: "Harakat talab qiluvchi element yo'q.", ru: "Нет элементов, требующих действий." },
+  mgr_empty_calls: { uz: "Qo'ng'iroqlar yo'q.", ru: "Звонков нет." },
+
+  // backend-gap (appointment/doctor modules not built yet)
+  mgr_gap_appt_title: { uz: "Qabul jadvali moduli", ru: "Модуль расписания приёма" },
+  mgr_gap_appt: {
+    uz: "Qabul (appointment) ma'lumotlari hali mavjud emas. Bu modul keyingi bosqichda (Appointment/Doctor) qo'shiladi.",
+    ru: "Данные о приёмах пока недоступны. Модуль будет добавлен на следующем этапе (Appointment/Doctor).",
+  },
+  mgr_gap_doctors: {
+    uz: "Shifokorlar moduli hali mavjud emas. Keyingi bosqichda (Doctor) qo'shiladi.",
+    ru: "Модуль врачей пока недоступен. Будет добавлен на следующем этапе (Doctor).",
+  },
+
+  // schedule
+  mgr_sched_title: { uz: "Qabul jadvali", ru: "Расписание приема" },
+  mgr_view_day: { uz: "Kun", ru: "День" },
+  mgr_view_week: { uz: "Hafta", ru: "Неделя" },
+  mgr_today: { uz: "Bugun", ru: "Сегодня" },
+  mgr_prev: { uz: "Oldingi", ru: "Назад" },
+  mgr_next: { uz: "Keyingi", ru: "Вперёд" },
+  mgr_empty_day: { uz: "Bugun qabul rejalashtirilmagan", ru: "На сегодня приемы не запланированы" },
+
+  // notifications
+  mgr_notif_title: { uz: "Bildirishnomalar", ru: "Уведомления" },
+  mgr_notif_empty: { uz: "Bildirishnomalar yo'q.", ru: "Уведомлений нет." },
+  mgr_mark_all_read: { uz: "Hammasini o'qilgan deb belgilash", ru: "Отметить все как прочитанные" },
+  mgr_mark_read: { uz: "O'qildi", ru: "Прочитано" },
+  mgr_unread: { uz: "o'qilmagan", ru: "непрочитанные" },
+  ntype_operator_required: { uz: "Operator talab qilinadi", ru: "Требуется оператор" },
+  ntype_callback_required: { uz: "Qayta qo'ng'iroq kerak", ru: "Требуется обратный звонок" },
+  ntype_callback_overdue: { uz: "Muddati o'tgan qayta qo'ng'iroq", ru: "Просроченный обратный звонок" },
+  ntype_emergency: { uz: "Shoshilinch holat", ru: "Экстренный случай" },
+
+  // reports
+  mgr_reports_title: { uz: "Hisobotlar", ru: "Отчеты" },
+  mgr_rep_action_items: { uz: "Harakat talab qiluvchi elementlar", ru: "Элементы, требующие действий" },
+  mgr_rep_note: {
+    uz: "Sana bo'yicha (bugun/hafta) hisobotlar Appointment moduli bilan qo'shiladi.",
+    ru: "Отчёты по датам (сегодня/неделя) появятся с модулем приёмов.",
+  },
+  mgr_doctors_title: { uz: "Shifokorlar", ru: "Врачи" },
+
   // overview
   ov_title: { uz: "Boshqaruv paneli", ru: "Панель управления" },
   ov_subtitle: {

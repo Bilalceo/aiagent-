@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.admin_user import AdminUser
 from app.services.auth.password import hash_password, verify_password
 
-VALID_ROLES = ("super_admin", "admin", "operator")
+VALID_ROLES = ("super_admin", "admin", "operator", "manager")
 
 
 class AuthService:

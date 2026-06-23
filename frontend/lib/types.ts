@@ -262,3 +262,32 @@ export interface TelephonyStreamFilters {
   limit?: number;
   offset?: number;
 }
+
+// Manager dashboard (M1a) - manager-safe shapes (phones masked server-side).
+export interface ManagerStats {
+  total_calls: number;
+  ai_resolved: number;
+  operator_transfers: number;
+  callbacks_required: number;
+  kb_items: number;
+}
+
+export interface ManagerActionItem {
+  id: number;
+  call_session_id: number;
+  reason: string;
+  priority: string;
+  status: string;
+  due_at: string | null;
+  phone_masked: string | null;
+  created_at: string | null;
+}
+
+export interface ManagerCall {
+  id: number;
+  from_masked: string | null;
+  language: string | null;
+  status: string;
+  started_at: string | null;
+  duration_seconds: number | null;
+}

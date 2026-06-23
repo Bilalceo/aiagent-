@@ -31,7 +31,8 @@ def redact_number(num: Optional[str]) -> str:
         return ""
     if len(s) <= 4:
         return "*" * len(s)
-    return s[:3] + "*" * (len(s) - 5) + s[-2:]
+    # Always keep at least 2 stars so a short number is never returned unmasked.
+    return s[:3] + "*" * max(2, len(s) - 5) + s[-2:]
 
 
 def _redact_text(text: Optional[str]) -> str:
