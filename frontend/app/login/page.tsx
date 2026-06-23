@@ -55,7 +55,7 @@ export default function LoginPage() {
 
       {stage === "password" ? (
         <form onSubmit={onPassword} className="space-y-3 rounded-lg border bg-white p-4">
-          <Input label={t("login_email")} type="email" value={email} onChange={setEmail} />
+          <Input label={t("login_email")} type="text" value={email} onChange={setEmail} />
           <Input label={t("login_password")} type="password" value={password} onChange={setPassword} />
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Submit busy={busy} busyLabel={t("login_please_wait")}>{t("login_signin")}</Submit>
